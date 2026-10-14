@@ -132,17 +132,12 @@ function handleShareAction() {
 
 	const rd = roomsData[activeRoomIndex];
 	const roomName = rd.roomName.trim();
-	const password = rd.password || '';
 	
-	// Encrypt room name and password
+	// Encrypt room name
 	const encryptedRoom = simpleEncrypt(roomName);
-	const encryptedPwd = password ? simpleEncrypt(password) : '';
 	
 	// Create share URL with encrypted data
-	let url = `${location.origin}${location.pathname}?r=${encodeURIComponent(encryptedRoom)}`;
-	if (encryptedPwd) {
-		url += `&p=${encodeURIComponent(encryptedPwd)}`;
-	}
+	const url = `${location.origin}${location.pathname}?r=${encodeURIComponent(encryptedRoom)}`;
 	
 	copyToClipboard(url, t('action.share_copied', 'Share link copied!'), t('action.copy_url_failed', 'Copy failed, url:'));
 }
@@ -408,20 +403,20 @@ export function preventSpaceInput(input) {
 export function loginFormHandler(modal) {
 	return function(e) {
 		e.preventDefault();
-		let userName, roomName, password, btn, roomInput, warnTip;
+		let userName, roomName, btn, roomInput, warnTip;
 		if (modal) {
 			userName = document.getElementById('userName-modal').value.trim();
 			roomName = document.getElementById('roomName-modal').value.trim();
-			password = document.getElementById('password-modal').value.trim();
 			btn = modal.querySelector('.login-btn');
 			roomInput = document.getElementById('roomName-modal')
 		} else {
 			userName = document.getElementById('userName').value.trim();
 			roomName = document.getElementById('roomName').value.trim();
-			password = document.getElementById('password').value.trim();
 			btn = document.querySelector('#login-form .login-btn');
 			roomInput = document.getElementById('roomName')
 		}
+		// 房间密码已取消：协议层继续接收密码参数，这里一律传空字符串
+		const password = '';
 		const exists = roomsData.some(rd => rd.roomName && rd.roomName.toLowerCase() === roomName.toLowerCase());
 		if (roomInput) {
 			roomInput.style.border = '';
@@ -473,10 +468,6 @@ export function generateLoginForm(isModal = false) {
 			<input id="roomName${idPrefix}" type="text" required minlength="1" maxlength="15" placeholder="">
 			<label for="roomName${idPrefix}" class="floating-label">${t('ui.node_name', 'Room Name')}</label>
 		</div>
-		<div class="input-group">
-			<input id="password${idPrefix}" type="password" autocomplete="${isModal ? 'off' : 'current-password'}" minlength="1" maxlength="15" placeholder="">
-			<label for="password${idPrefix}" class="floating-label">${t('ui.node_password', 'Room Password')} <span class="optional">${t('ui.optional', '(optional)')}</span></label>
-		</div>
 		<button type="submit" class="login-btn">${t('ui.enter', 'ENTER')}</button>
 	`;
 }
@@ -488,7 +479,7 @@ export function openLoginModal() {
 	modal.querySelector('.login-modal-close').onclick = () => modal.remove();
 	preventSpaceInput(modal.querySelector('#userName-modal'));
 	preventSpaceInput(modal.querySelector('#roomName-modal'));
-	preventSpaceInput(modal.querySelector('#password-modal'));	const form = modal.querySelector('#login-form-modal');
+	const form = modal.querySelector('#login-form-modal');
 	form.addEventListener('submit', loginFormHandler(modal));
 	autofillRoomPwd('-modal')
 }
@@ -505,35 +496,26 @@ export function setupTabs() {
 	}
 }
 
-// Autofill room and password from URL
-// 从 URL 自动填充房间和密码
+// Autofill room from URL
+// 从 URL 自动填充房间
 export function autofillRoomPwd(formPrefix = '') {
 	const params = new URLSearchParams(window.location.search);
 	
 	// Check for new encrypted format first
 	const encryptedRoom = params.get('r');
-	const encryptedPwd = params.get('p');
 	
 	// Check for old plaintext format (for backward compatibility)
 	const plaintextRoom = params.get('node');
-	const plaintextPwd = params.get('pwd');
 	
 	let roomValue = '';
-	let pwdValue = '';
 	let isPlaintext = false;
 	
 	if (encryptedRoom) {
 		// New encrypted format
 		roomValue = simpleDecrypt(decodeURIComponent(encryptedRoom));
-		if (encryptedPwd) {
-			pwdValue = simpleDecrypt(decodeURIComponent(encryptedPwd));
-		}
 	} else if (plaintextRoom) {
 		// Old plaintext format - show security warning
 		roomValue = decodeURIComponent(plaintextRoom);
-		if (plaintextPwd) {
-			pwdValue = decodeURIComponent(plaintextPwd);
-		}
 		isPlaintext = true;
 		
 		// Show security warning for plaintext URLs
@@ -541,7 +523,8 @@ export function autofillRoomPwd(formPrefix = '') {
 			window.addSystemMsg(t('system.security_warning', '⚠️ This link uses an old format. Room data is not encrypted.'), true);
 		}
 	}
-		// Fill in the form fields
+	
+	// Fill in the form fields
 	if (roomValue) {
 		const roomInput = document.getElementById(formPrefix + 'roomName');
 		if (roomInput) {
@@ -549,26 +532,10 @@ export function autofillRoomPwd(formPrefix = '') {
 			roomInput.readOnly = true;
 			roomInput.style.background = isPlaintext ? '#fff9e6' : '#f5f5f5'; // Yellow tint for plaintext
 		}
-				// Always lock password field when coming from a share link
-		const pwdInput = document.getElementById(formPrefix + 'password');
-		if (pwdInput) {
-			pwdInput.value = pwdValue; // Will be empty string if no password
-			pwdInput.readOnly = true;
-			pwdInput.style.background = isPlaintext ? '#fff9e6' : '#f5f5f5'; // Yellow tint for plaintext
-			
-			// Add visual indicator for no password and keep label floating
-			if (!pwdValue) {
-				pwdInput.placeholder = 'No password required';
-				// Add a space to make the input appear "filled" so the label stays floating
-				pwdInput.value = ' ';
-				// Make the text invisible but keep the label floating behavior
-				pwdInput.style.color = 'transparent';
-			}
-		}
 	}
 	
 	// Clear URL parameters for security
-	if (roomValue || pwdValue) {
+	if (roomValue) {
 		window.history.replaceState({}, '', location.pathname);
 	}
 }
