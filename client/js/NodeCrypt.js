@@ -16,6 +16,9 @@ import {
 } from 'buffer';
 window.Buffer = Buffer;
 
+// 索要历史的窗口时长：房间里各同伴的密钥陆续就绪，这个窗口决定最晚等多久就停止索要
+const HISTORY_WINDOW_MS = 10000;
+
 // Main NodeCrypt class for secure communication
 // 用于安全通信的 NodeCrypt 主类
 class NodeCrypt {
@@ -40,8 +43,10 @@ class NodeCrypt {
 			onJoinDenied: callbacks.onJoinDenied || null,
 			onJoinRequest: callbacks.onJoinRequest || null,
 			onJoinRequestCancel: callbacks.onJoinRequestCancel || null,
+			onHistorySyncStart: callbacks.onHistorySyncStart || null,
+			onHistoryRequest: callbacks.onHistoryRequest || null,
+			onHistoryData: callbacks.onHistoryData || null,
 		};
-		this.SERVER_KEY_STORAGE = 'nodecrypt_server_key';
 		try {
 			this.clientEc = new elliptic('curve25519')
 		} catch (error) {
@@ -54,6 +59,13 @@ class NodeCrypt {
 		this.reconnect = null;
 		this.ping = null;
 		this.channel = {};
+		// 历史同步状态：进入房间后开一段索要窗口，窗口内每有一个同伴的会话密钥
+		// 就绪就向它单独要一次，重连后由 resetHistoryState 复位。
+		this.historyWindowOpen = false;
+		this.historyWindowUsed = false;
+		this.historyAsked = new Set();
+		this.historyPeerCount = 0;
+		this.historyTimer = null;
 		this.setCredentials = this.setCredentials.bind(this);
 		this.connect = this.connect.bind(this);
 		this.destruct = this.destruct.bind(this);
@@ -71,6 +83,7 @@ class NodeCrypt {
 		this.disconnect = this.disconnect.bind(this);
 		this.sendMessage = this.sendMessage.bind(this);
 		this.sendChannelMessage = this.sendChannelMessage.bind(this);
+		this.sendHistoryTo = this.sendHistoryTo.bind(this);
 		this.approveJoin = this.approveJoin.bind(this);
 		this.denyJoin = this.denyJoin.bind(this);
 		this.encryptServerMessage = this.encryptServerMessage.bind(this);
@@ -110,6 +123,7 @@ class NodeCrypt {
 		this.serverKeys = null;
 		this.serverShared = null;
 		this.channel = {};
+		this.resetHistoryState();
 		try {
 			this.connection = new WebSocket(this.config.wsAddress);
 			this.connection.onopen = this.onOpen;
@@ -148,6 +162,9 @@ class NodeCrypt {
 		this.callbacks.onJoinDenied = null;
 		this.callbacks.onJoinRequest = null;
 		this.callbacks.onJoinRequestCancel = null;
+		this.callbacks.onHistorySyncStart = null;
+		this.callbacks.onHistoryRequest = null;
+		this.callbacks.onHistoryData = null;
 		this.clientEc = null;
 		this.serverKeys = null;
 		this.serverShared = null;
@@ -338,6 +355,14 @@ class NodeCrypt {
 			} catch (error) {
 				this.logEvent('onMessage-list', error, 'error')
 			}
+			// 只有「房间里已经有别人」时才需要索要历史：第一台设备无人可问，
+			// 反过来向刚进来的新成员要历史，只会收到一份空回应、白弹一句「没有历史」。
+			if (serverDecrypted.p.length > 0) {
+				this.openHistoryWindow();
+			}
+			for (const peerId in this.channel) {
+				this.requestHistoryFrom(peerId)
+			}
 			if (this.callbacks.onClientList) {
 				let clients = [];
 				// 先放自己那一项：服务端下发的名单按协议排除自己（见 worker 的 broadcastMemberList），
@@ -392,6 +417,8 @@ class NodeCrypt {
 					}, this.channel[serverDecrypted.c].shared),
 					c: serverDecrypted.c
 				}, this.serverShared))
+				// 这个同伴的会话密钥刚就绪，窗口还开着就向它要一次历史
+				this.requestHistoryFrom(serverDecrypted.c)
 			} catch (error) {
 				this.logEvent('onMessage-client', error, 'error')
 			}
@@ -416,7 +443,29 @@ class NodeCrypt {
 					}
 				}
 				return
-			}			if (!this.channel[serverDecrypted.c].username) {
+			}			// 历史同步请求与回应都不依赖对方是否已上报设备名：新设备刚进房间时
+			// 可能还没收到任何 u，若用设备名当门槛，同步会被整个挡掉。
+			if (clientDecrypted.a === 'hq') {
+				if (this.callbacks.onHistoryRequest) {
+					try {
+						this.callbacks.onHistoryRequest(serverDecrypted.c)
+					} catch (error) {
+						this.logEvent('onMessage-history-request-callback', error, 'error')
+					}
+				}
+				return
+			}
+			if (clientDecrypted.a === 'h' && this.isArray(clientDecrypted.d)) {
+				if (this.callbacks.onHistoryData) {
+					try {
+						this.callbacks.onHistoryData(serverDecrypted.c, clientDecrypted.d)
+					} catch (error) {
+						this.logEvent('onMessage-history-data-callback', error, 'error')
+					}
+				}
+				return
+			}
+			if (!this.channel[serverDecrypted.c].username) {
 				return
 			}
 			if (clientDecrypted.a === 'm' && this.isString(clientDecrypted.t) && (this.isString(clientDecrypted.d) || this.isObject(clientDecrypted.d))) {
@@ -539,6 +588,7 @@ class NodeCrypt {
 	disconnect() {
 		this.stopReconnect();
 		this.stopPing();
+		this.resetHistoryState();
 		if (!this.isClosed()) {
 			try {
 				this.logEvent('disconnect');
@@ -566,19 +616,33 @@ class NodeCrypt {
 	// Send a message to all channels
 	// 向所有频道发送消息
 	sendChannelMessage(type, data) {
+		return (this.sendChannelAction('m', type, data, true))
+	}
+
+	// Broadcast an inner action to every peer whose session key is ready
+	// 把一个内层动作群发给所有会话密钥已就绪的成员
+	// 抽出通用实现而不是直接改 sendChannelMessage：'m' 要求对方已上报设备名，
+	// 'hq' 只要密钥协商完成就该发；两者挤在一个函数里会让字段要求互相纠缠。
+	sendChannelAction(action, type, data, requireUsername) {
 		if (this.serverShared) {
 			try {
 				let payloads = {};
 				for (const clientId in this.channel) {
-					if (this.channel[clientId].shared && this.channel[clientId].username) {
-						payloads[clientId] = this.encryptClientMessage({
+					const peer = this.channel[clientId];
+					if (!peer.shared || (requireUsername && !peer.username)) {
+						continue
+					}
+					payloads[clientId] = action === 'm' ?
+						this.encryptClientMessage({
 							a: 'm',
 							t: type,
 							d: data
-						}, this.channel[clientId].shared);
-						if (payloads[clientId].length === 0) {
-							return (false)
-						}
+						}, peer.shared) :
+						this.encryptClientMessage({
+							a: action
+						}, peer.shared);
+					if (payloads[clientId].length === 0) {
+						return (false)
 					}
 				}
 				if (Object.keys(payloads).length > 0) {
@@ -593,8 +657,100 @@ class NodeCrypt {
 				}
 				return (true)
 			} catch (error) {
-				this.logEvent('sendChannelMessage', error, 'error')
+				this.logEvent('sendChannelAction', error, 'error')
 			}
+		}
+		return (false)
+	}
+
+	// Clear per-connection history sync state
+	// 复位每次连接的历史同步状态
+	resetHistoryState() {
+		this.historyWindowOpen = false;
+		this.historyWindowUsed = false;
+		this.historyAsked = new Set();
+		this.historyPeerCount = 0;
+		if (this.historyTimer) {
+			clearTimeout(this.historyTimer);
+			this.historyTimer = null
+		}
+	}
+
+	// Open this connection's single window during which history may be requested
+	// 打开本次连接唯一的「索要历史」窗口
+	// 不用固定延时的原因：名单一到就发，此刻 this.channel 里全是刚建好、shared
+	// 仍为空的条目，请求会发给零个成员；而延时到点若密钥依旧没就绪，请求同样落空
+	// 且不会重来。改成等每个同伴的密钥就绪后各要一次，既不赌时间，也不会反复问。
+	openHistoryWindow() {
+		if (this.historyWindowUsed) {
+			return
+		}
+		this.historyWindowUsed = true;
+		this.historyWindowOpen = true;
+		// 兜底关闭：房间里始终没人回应时不能一直挂着，也就不用留下常驻定时器
+		this.historyTimer = setTimeout(() => {
+			this.historyTimer = null;
+			this.historyWindowOpen = false
+		}, HISTORY_WINDOW_MS)
+	}
+
+	// Ask one peer for its history, at most once per connection
+	// 向某一个同伴索要历史，每次连接对它最多问一次
+	requestHistoryFrom(clientId) {
+		if (!this.historyWindowOpen || this.historyAsked.has(clientId)) {
+			return
+		}
+		const peer = this.channel[clientId];
+		if (!peer || !peer.shared || !this.serverShared) {
+			return
+		}
+		const message = this.encryptServerMessage({
+			a: 'c',
+			p: this.encryptClientMessage({
+				a: 'hq'
+			}, peer.shared),
+			c: clientId
+		}, this.serverShared);
+		if (!this.isOpen() || message.length === 0) {
+			return
+		}
+		this.historyAsked.add(clientId);
+		this.connection.send(message);
+		this.historyPeerCount = this.historyAsked.size;
+		// 第一台设备没有同伴可问，此时连提示都不该发：看到「正在同步历史」
+		// 却永远等不到结果只会让人困惑
+		if (this.callbacks.onHistorySyncStart) {
+			try {
+				this.callbacks.onHistorySyncStart(this.historyPeerCount)
+			} catch (error) {
+				this.logEvent('onMessage-history-sync-start-callback', error, 'error')
+			}
+		}
+	}
+
+	// Reply with local history to one requesting peer
+	// 把本地历史点对点回给某个请求者
+	sendHistoryTo(clientId, entries) {
+		try {
+			const peer = this.channel[clientId];
+			if (!peer || !peer.shared || !this.serverShared) {
+				return (false)
+			}
+			const message = this.encryptServerMessage({
+				a: 'c',
+				p: this.encryptClientMessage({
+					a: 'h',
+					d: entries
+				}, peer.shared),
+				c: clientId
+			}, this.serverShared);
+			if (!this.isOpen() || message.length === 0 || message.length > (8 * 1024 * 1024)) {
+				return (false)
+			}
+			this.connection.send(message);
+			return (true)
+		} catch (error) {
+			this.logEvent('sendHistoryTo', error, 'error')
 		}
 		return (false)
 	}
@@ -723,8 +879,6 @@ class NodeCrypt {
 	// 处理服务器公钥
 	async handleServerKey(serverKey) {
 		this.logEvent('handleServerKey', 'Received server key');
-		localStorage.removeItem(this.SERVER_KEY_STORAGE);
-		localStorage.setItem(this.SERVER_KEY_STORAGE, serverKey);
 		this.config.rsaPublic = serverKey;
 		return true
 	}

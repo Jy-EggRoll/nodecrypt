@@ -142,7 +142,10 @@ export function joinRoom(userName, roomName, password, modal = null, onResult) {
 		onJoinApproved: () => hideWaitingRoom(),
 		onJoinDenied: (reason) => handleJoinDenied(idx, reason),
 		onJoinRequest: (clientId, name) => showJoinApproval(roomsData[idx].chat, name, clientId),
-		onJoinRequestCancel: (clientId) => hideJoinApproval(clientId)
+		onJoinRequestCancel: (clientId) => hideJoinApproval(clientId),
+		onHistorySyncStart: () => handleHistorySyncStart(idx),
+		onHistoryRequest: (clientId) => handleHistoryRequest(idx, clientId),
+		onHistoryData: (clientId, entries) => handleHistoryData(idx, clientId, entries)
 	};
 	const chatInst = new window.NodeCrypt(window.config, callbacks);
 	// 设备 id 一并交给 NodeCrypt，发 'jr' 时随申请上报
@@ -394,6 +397,173 @@ export function handleClientMessage(idx, msg) {
 	const notificationMsgType = msgType.includes('_private') ? `private ${msgType.split('_')[0]}` : msgType;
 	if (window.notifyMessage) {
 		window.notifyMessage(newRd.roomName, notificationMsgType, msg.data, realUserName);
+	}
+}
+
+// How many entries a single history reply may carry, and the total size cap
+// 单次历史回应最多携带的条目数，以及总体积上限
+const HISTORY_MAX_ENTRIES = 500;
+// 载荷要经内层、外层两次 base64，体积约膨胀到 1.9 倍；按 8 MB 卡条目的话，
+// 序列化后会被传输层的 8 MB 判据整包丢掉，回应者等于没答复。故按一半留出余量。
+const HISTORY_MAX_BYTES = 4 * 1024 * 1024;
+const HISTORY_WAIT_MS = 800;
+
+// New room data holders for the history exchange, filled lazily
+// 历史交换的房间级中间状态，按需建立
+function startHistoryCollection(idx) {
+	const rd = roomsData[idx];
+	if (!rd) return;
+	rd.history = {
+		responses: [],
+		timer: null
+	};
+	if (activeRoomIndex === idx) {
+		// isHistory 为真表示只画一次、不进记录：否则这句提示会随着历史传给别的设备，
+		// 让别人看到一句莫名的「正在同步历史消息」
+		addSystemMsg(t('system.history_syncing', 'Syncing history'), true, Date.now());
+	}
+}
+
+// Pick the entries that are allowed to travel with a history reply
+// 挑出允许随历史回应传递的条目
+// 文件分卷与图片不参与同步：历史里只剩线索没有内容，
+// 传过去会变成点开下载却拿不到数据的死卡片，因此只放 system 与纯文本。
+function collectSyncableEntries(rd) {
+	const list = (rd && rd.messages) || [];
+	const entries = [];
+	let bytes = 0;
+	// 从最新往前取：既满足「最多最近 500 条」，也保证超体积时留下的是最近的那一段
+	for (let i = list.length - 1; i >= 0 && entries.length < HISTORY_MAX_ENTRIES; i--) {
+		const msg = list[i];
+		let entry = null;
+		if (msg.type === 'system') {
+			entry = {
+				type: 'system',
+				text: msg.text
+			}
+		} else if ((msg.type === 'other' || msg.type === 'me') && msg.msgType === 'text') {
+			// 自己发出的消息在本地记作 type 'me'，但对收历史的一方来说就是他人消息，
+			// 必须在这里转成 'other' 并补上自己的设备名——漏掉它的话，设备之间
+			// 传来的将只有系统提示，真正的对话内容一条都同步不出去。
+			const mine = msg.type === 'me';
+			entry = {
+				type: 'other',
+				text: msg.text,
+				userName: mine ? (rd.myUserName || '') : msg.userName,
+				avatar: mine ? (rd.myUserName || '') : msg.avatar,
+				msgType: msg.msgType,
+				// addOtherMsg 在 isHistory 为真且取不到时间戳时会直接不渲染，
+				// 这里补一个兜底，避免少数缺时间戳的旧记录在同步后凭空消失
+				timestamp: msg.timestamp || Date.now()
+			}
+		}
+		if (!entry) continue;
+		const size = JSON.stringify(entry).length + 1;
+		if (bytes + size > HISTORY_MAX_BYTES) {
+			break
+		}
+		bytes += size;
+		entries.push(entry)
+	}
+	return entries.reverse()
+}
+
+// Serve a peer's history request from this device's own memory
+// 用本设备内存里的记录回应同伴的历史请求
+// 服务端一个字节都不存：历史只能在设备之间点对点流传。
+function handleHistoryRequest(idx, clientId) {
+	const rd = roomsData[idx];
+	if (!rd || !rd.chat) return;
+	// 空数组也要回：请求者靠「回应者是否都答复过」决定何时停止等待。
+	// 回包因体积被传输层拒掉时也补一个空回包，否则请求者会把这个回应者
+	// 当成没答复而一直等下去
+	const entries = collectSyncableEntries(rd);
+	if (!rd.chat.sendHistoryTo(clientId, entries)) {
+		rd.chat.sendHistoryTo(clientId, [])
+	}
+}
+
+// Begin collecting history replies
+// 开始收集历史回应
+export function handleHistorySyncStart(idx) {
+	startHistoryCollection(idx)
+}
+
+// Collect one history reply, finishing early once every asked peer answered
+// 收集一份历史回应；所有被问到的设备都答复后提前结束
+export function handleHistoryData(idx, clientId, entries) {
+	const rd = roomsData[idx];
+	if (!rd || !rd.history || !Array.isArray(entries)) return;
+	rd.history.responses.push(entries);
+	// 各家历史长短不一，等满窗口再决定用哪一份。
+	// 不再用「回应者数量」提前收尾：请求是随着各同伴的密钥逐个就绪才发出的，
+	// 总数在过程中会变，拿它当判据会提前结束、漏掉晚到的那一份。
+	if (!rd.history.timer) {
+		rd.history.timer = setTimeout(() => finishHistory(idx), HISTORY_WAIT_MS)
+	}
+}
+
+// Render the longest reply and drop the rest
+// 只渲染条数最多的那一份回应，其余丢弃
+// 不合并、不去重：多份回应之间必然重叠，合并只会制造重复条目。
+function finishHistory(idx) {
+	const rd = roomsData[idx];
+	if (!rd || !rd.history) return;
+	if (rd.history.timer) {
+		clearTimeout(rd.history.timer)
+	}
+	const responses = rd.history.responses;
+	rd.history = null;
+	let best = [];
+	for (const entries of responses) {
+		if (entries.length > best.length) {
+			best = entries
+		}
+	}
+	// 合并进本设备的记录，而不是只画一遍。
+	// 只画不记的话，这台设备转手就提供不了这段历史：一旦长寿的设备退出，
+	// 后来者再也同步不到更早的消息，历史会在内存里断链。
+	// 去重键刻意不含 timestamp——同一条消息在各设备上存的是各自收到的时刻，
+	// 时间戳必然不同，拿它当键等于没去重。
+	const keyOf = (m) => {
+		// 自己发的消息在本地记作 type 'me'，在别人的记录里是 'other' + 自己的名字；
+		// 不做这一步归一，同一句话会被当成两条，自己的消息显示两遍。
+		const isMine = m.type === 'me';
+		const kind = isMine ? 'other' : m.type;
+		const who = isMine ? (rd.myUserName || '') : (m.userName || '');
+		const body = typeof m.text === 'string' ? m.text : JSON.stringify(m.text);
+		return `${kind}|${who}|${m.msgType || ''}|${body}`
+	};
+	const seen = new Set();
+	const merged = [];
+	// 本地条目优先入列：自己发出的消息因此保持 'me' 类型，气泡样式与对齐才对
+	for (const m of (rd.messages || [])) {
+		const k = keyOf(m);
+		if (seen.has(k)) continue;
+		seen.add(k);
+		merged.push(m)
+	}
+	for (const entry of best) {
+		const k = keyOf(entry);
+		if (seen.has(k)) continue;
+		seen.add(k);
+		merged.push(entry)
+	}
+	// 按各自记录的时间排序，让历史排在实时消息之前
+	merged.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+	rd.messages = merged;
+
+	if (best.length === 0) {
+		// 谁都没有历史：只在当前房间说一声，已有记录不动
+		if (activeRoomIndex === idx) {
+			addSystemMsg(t('system.history_none', 'No history to sync'), true, Date.now())
+		}
+		return
+	}
+	// 整块重绘：renderChatArea 按 rd.messages 全量画一遍，不必逐条调用，
+	// 也就不会留下局部重绘造成的重复气泡
+	if (activeRoomIndex === idx) {
+		renderChatArea()
 	}
 }
 
