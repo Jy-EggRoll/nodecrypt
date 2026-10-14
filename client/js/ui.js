@@ -31,7 +31,6 @@ import {
 
 // Room code: 6 characters of [a-z0-9]
 // 房间码：6 位小写字母与数字
-const ROOM_CODE_STORAGE = 'nodecrypt_room_code';
 const ROOM_CODE_LENGTH = 6;
 const ROOM_CODE_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
@@ -46,24 +45,6 @@ export function generateRoomCode() {
 		code += ROOM_CODE_ALPHABET.charAt(bytes[i] % ROOM_CODE_ALPHABET.length);
 	}
 	return code;
-}
-
-// Remember the room code in localStorage so the next visit autofills it
-// 用 localStorage 记住房间码，便于下次打开自动填入
-export function rememberRoomCode(code) {
-	try {
-		if (code) localStorage.setItem(ROOM_CODE_STORAGE, code);
-	} catch (error) {
-		console.warn('Failed to remember room code:', error);
-	}
-}
-
-export function getRememberedRoomCode() {
-	try {
-		return localStorage.getItem(ROOM_CODE_STORAGE) || '';
-	} catch (error) {
-		return '';
-	}
 }
 
 // Clean up a room code coming from user input
@@ -496,8 +477,6 @@ export function loginFormHandler(modal) {
 		}
 		window.joinRoom(userName, roomName, password, modal, function(success) {
 			if (success) {
-				// 只有真正进入房间后才记住房间码，避免记下连不上的码
-				rememberRoomCode(roomName);
 				// 用户可能在输入框里改成了另一个码，成功后必须把地址栏同步过去，
 				// 否则刷新时路径里的旧码优先，会把人莫名拉回旧房间。
 				// 侧边栏加入的第二个房间不改网址，它只是同一个标签页里的额外房间。
@@ -572,7 +551,7 @@ export function showJoinApproval(chat, name, clientId) {
 	modal.className = 'login-modal join-request-modal';
 	modal.dataset.clientId = clientId;
 	const unknownName = t('ui.anonymous', 'Anonymous');
-	modal.innerHTML = `<div class="login-modal-bg"></div><div class="login-modal-card"><h1>${t('ui.join_request_title', 'Join Request')}</h1><p class="join-request-name">${escapeHTML(name || unknownName)} ${t('ui.join_request_desc', 'wants to join this room')}</p><div class="join-request-actions"><button class="login-btn join-approve-btn">${t('ui.approve', 'Approve')}</button><button class="login-btn join-deny-btn">${t('ui.deny', 'Deny')}</button></div></div>`;
+	modal.innerHTML = `<div class="login-modal-bg"></div><div class="login-modal-card"><h1>${t('ui.join_request_title', 'Join Request')}</h1><p class="join-request-name">${escapeHTML(name || unknownName)} ${t('ui.join_request_desc', 'wants to join this room')}</p><div class="join-request-actions"><button class="login-btn join-approve-btn">${t('ui.approve', 'Approve')}</button><button class="login-btn-secondary join-deny-btn">${t('ui.deny', 'Deny')}</button></div></div>`;
 	document.body.appendChild(modal);
 	// 多个申请者会同时产生多个弹窗，每个都自带一层遮罩。层级相同的话，
 	// 上层遮罩会压住下层弹窗的按钮，用户点不到；按弹窗数量递增，后出现的在上。
@@ -611,7 +590,7 @@ export function setupTabs() {
 // 从 URL 自动填充房间
 export function autofillRoomPwd(formPrefix = '') {
 	// 只有主登录表单负责生成房间码并改写地址栏。
-	// 侧边栏的「加入房间」弹窗若也生成，会覆盖用户已经记住的房间码。
+	// 侧边栏的「加入房间」弹窗不预填也不生成任何码，留空由用户自己输入。
 	const isMainForm = formPrefix === '';
 	const params = new URLSearchParams(window.location.search);
 	const roomInput = document.getElementById(formPrefix + 'roomName');
@@ -620,7 +599,8 @@ export function autofillRoomPwd(formPrefix = '') {
 	// Check for old plaintext format (for backward compatibility)
 	const plaintextRoom = params.get('node');
 
-	// 房间码来源优先级：网址路径 → localStorage → 主表单新生成
+	// 房间码只有两个来源：网址路径里的码，或主表单新生成一个。
+	// 刻意不落任何存储：同一浏览器每次打开都得到新码，用户才不会误以为码是写死的。
 	let roomValue = '';
 	let isPlaintext = false;
 
@@ -636,14 +616,11 @@ export function autofillRoomPwd(formPrefix = '') {
 		if (window.addSystemMsg) {
 			window.addSystemMsg(t('system.security_warning', '⚠️ This link uses an old format. Room data is not encrypted.'), true);
 		}
-	} else {
-		// 没有分享链接时，沿用浏览器记住的房间码，避免每次重新生成
-		roomValue = normalizeRoomCode(getRememberedRoomCode());
 	}
 	if (isMainForm && !roomValue) {
-		// 首次打开域名时自动准备一个可分享的房间码，用户不必自己想一个
+		// 打开域名根地址时自动准备一个可分享的房间码，用户不必自己想一个；
+		// 侧边栏弹窗不在此列，它会保持空白。
 		roomValue = generateRoomCode();
-		rememberRoomCode(roomValue);
 	}
 
 	// Fill in the form fields

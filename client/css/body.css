@@ -580,14 +580,33 @@ body {
   z-index: 100;
 }
 
+/* 沿用登录卡片的宽度、圆角与阴影，让等待界面看起来是同一个产品 */
 .waiting-room-card {
+  width: 400px;
+  max-width: calc(100vw - 32px);
+  box-sizing: border-box;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 2px 16px rgba(60, 80, 100, 0.13);
   text-align: center;
-  padding: 32px 24px;
+  padding: 32px 24px 24px 24px;
+}
+
+.waiting-room-hint {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #808080;
 }
 
 .waiting-room-device {
-  margin: 12px 0 24px;
+  margin: 16px 0 4px;
   font-size: 16px;
+  color: #333;
+}
+
+.waiting-room-device-label {
+  margin-right: 8px;
   color: #808080;
 }
 
@@ -598,6 +617,33 @@ body {
   justify-content: center;
 }
 
-.join-request-actions .login-btn {
+.join-request-actions .login-btn,
+.join-request-actions .login-btn-secondary {
   min-width: 96px;
+}
+
+/* 次要按钮：拒绝与取消这类非主路径操作，靠描边区分，不与主色按钮争夺注意力 */
+.login-btn-secondary {
+	margin-top: 20px;
+	background: #fff;
+	border: 1px solid #d5dde5;
+	color: #4a5a68;
+	font-size: 1.2rem;
+	font-weight: 500;
+	border-radius: 12px;
+	padding: 14px 0;
+	cursor: pointer;
+	letter-spacing: 1px;
+	transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.login-btn-secondary:hover,
+.login-btn-secondary:focus {
+	background: #f4f8fc;
+	border-color: #30a8f7;
+	color: #2196e3;
+}
+
+.login-btn-secondary:active {
+	transform: translateY(1px);
 }

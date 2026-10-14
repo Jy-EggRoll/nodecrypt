@@ -130,9 +130,10 @@
 		</div>
 	</div><div class="waiting-room" id="waiting-room" style="display:none;">
 		<div class="waiting-room-card">
-			<h1 data-i18n="ui.waiting_approval">等待房间内设备批准</h1>
-			<p class="waiting-room-device" id="waiting-room-device"></p>
-			<button type="button" class="login-btn" id="waiting-cancel-btn">取消</button>
+			<h1 data-i18n="ui.waiting_approval">Waiting for approval</h1>
+			<p class="waiting-room-hint" data-i18n="ui.waiting_hint">Approve this device on a device already in the room.</p>
+			<p class="waiting-room-device"><span class="waiting-room-device-label" data-i18n="ui.this_device">This device</span><span id="waiting-room-device"></span></p>
+			<button type="button" class="login-btn-secondary" id="waiting-cancel-btn" data-i18n="action.cancel">Cancel</button>
 		</div>
 	</div><div class="container" id="chat-container" style="display:none;">
 		<div class="mobile-sidebar-mask" id="mobile-sidebar-mask"></div>
