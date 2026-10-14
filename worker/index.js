@@ -1,4 +1,4 @@
-import { generateClientId, encryptMessage, decryptMessage, logEvent, isString, isObject, getTime, setLogLevel } from './utils.js';
+import { generateClientId, encryptMessage, decryptMessage, logEvent, isString, isObject, isArray, getTime, setLogLevel } from './utils.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -30,6 +30,15 @@ export class ChatRoom {  constructor(state, env) {
     // Use objects like original server.js instead of Maps
     this.clients = {};
     this.channels = {};
+    // 候客池：{ 房间哈希: [clientId, ...] }。等待批准的客户端只登记在这里，
+    // 不写入 clients[].channel，这样 broadcastMemberList 天然不会把它算作房间成员。
+    this.pending = {};
+
+    // 已批准设备记忆：{ 房间哈希: Set<deviceId> }，用于断线重连或刷新后免二次审批。
+    // 房间变空时有意不清除，只在 Durable Object 重启时随之消失：两台自有设备同时
+    // 断线重连时都能凭 deviceId 直接回来，否则它们会互相等对方批准而双双卡住。
+    // 代价是内存里会残留少量空房间的 id 集合，对几台自有设备来说可以忽略。
+    this.approved = {};
     
     this.config = {
       seenTimeout: 60000,
@@ -144,7 +153,12 @@ export class ChatRoom {  constructor(state, env) {
       seen: getTime(),
       key: null,
       shared: null,
-      channel: null
+      channel: null,
+      // 客户端持久化的设备 id，用于跨连接识别同一台设备；缺失或无效时为 null
+      deviceId: null,
+      // 候客状态：pendingRoom 有值期间该客户端尚未加入房间，只是申请者
+      pendingRoom: null,
+      pendingName: null
     };
 
     // Send RSA public key
@@ -241,31 +255,28 @@ export class ChatRoom {  constructor(state, env) {
     connection.addEventListener('close', async (event) => {
       logEvent('close', [clientId, event], 'debug');
 
-      const channel = this.clients[clientId].channel;
+      const client = this.clients[clientId];
+      const channel = client ? client.channel : null;
+
+      // 等待审批中的客户端 channel 为空，同样必须从候客池摘除，否则会留下幽灵等待者
+      this.removeClientFromPending(clientId);
 
       if (channel && this.channels[channel]) {
-        this.channels[channel].splice(this.channels[channel].indexOf(clientId), 1);
+        const index = this.channels[channel].indexOf(clientId);
+        const removed = index !== -1;
+
+        // 必须先判下标：indexOf 返回 -1 时 splice(-1, 1) 会误删数组最后一个成员
+        if (removed) {
+          this.channels[channel].splice(index, 1);
+        }
 
         if (this.channels[channel].length === 0) {
           delete(this.channels[channel]);
-        } else {
-          try {
-            const members = this.channels[channel];
-
-            for (const member of members) {
-              const client = this.clients[member];              if (this.isClientInChannel(client, channel)) {
-                this.sendMessage(client.connection, encryptMessage({
-                  a: 'l',
-                  p: members.filter((value) => {
-                    return (value !== member ? true : false);
-                  })
-                }, client.shared));
-              }
-            }
-
-          } catch (error) {
-            logEvent('close-list', [clientId, error], 'error');
-          }
+        } else if (removed) {
+          // Only broadcast after a real removal. Reuse the shared implementation so
+          // the me field and the exclusion rule can never drift apart from it.
+          // 只有确实移除了成员才广播名单；复用同一份实现，me 字段与排除规则不会两处走样。
+          this.broadcastMemberList(channel);
         }
       }
 
@@ -289,6 +300,12 @@ export class ChatRoom {  constructor(state, env) {
 
       if (action === 'j') {
         this.handleJoinChannel(clientId, decrypted);
+      } else if (action === 'jr') {
+        this.handleJoinRequest(clientId, decrypted);
+      } else if (action === 'ja') {
+        this.handleApproveJoin(clientId, decrypted);
+      } else if (action === 'jn') {
+        this.handleDenyJoin(clientId, decrypted);
       } else if (action === 'c') {
         this.handleClientMessage(clientId, decrypted);
       } else if (action === 'w') {
@@ -302,6 +319,8 @@ export class ChatRoom {  constructor(state, env) {
     }
   }
   // Handle channel join requests
+  // 旧协议路径：收到即放行，无候客审批。已被 jr（handleJoinRequest）取代，
+  // 保留仅为兼容尚未升级的客户端，新客户端不再走这里。
   handleJoinChannel(clientId, decrypted) {
     if (!isString(decrypted.p) || this.clients[clientId].channel) {
       return;
@@ -323,6 +342,213 @@ export class ChatRoom {  constructor(state, env) {
     } catch (error) {
       logEvent('message-join', [clientId, error], 'error');
     }
+  }
+  // 新设备候客：申请加入房间，由房间内已有设备批准后才真正加入
+  handleJoinRequest(clientId, decrypted) {
+    if (!isString(decrypted.p) || this.clients[clientId].channel) {
+      return;
+    }
+
+    try {
+      const channel = decrypted.p;
+      const name = isString(decrypted.n) ? decrypted.n : '';
+      // Only a real string may become a deviceId: storing null for every client that
+      // sends nothing would put them all in the approved set and let them impersonate
+      // each other on the next reconnect.
+      // 只有真正的字符串才作为 deviceId；把缺失值也记进 approved 会让所有未带 id
+      // 的客户端在下次重连时互相冒充。
+      const deviceId = isString(decrypted.d) ? decrypted.d : null;
+      this.clients[clientId].deviceId = deviceId;
+
+      const approvedDevices = this.approved[channel];
+      const isKnownDevice = deviceId !== null && approvedDevices instanceof Set && approvedDevices.has(deviceId);
+      const isRoomEmpty = !this.channels[channel] || this.channels[channel].length === 0;
+
+      // 房间不存在或已无成员时，申请者即房间建立者，无需审批直接放行；
+      // 已获批准过的设备重连也直接放行，避免刷新页面后退回等待状态。
+      if (isKnownDevice || isRoomEmpty) {
+        if (isRoomEmpty) {
+          this.channels[channel] = [clientId];
+        } else if (this.channels[channel].indexOf(clientId) === -1) {
+          this.channels[channel].push(clientId);
+        }
+
+        this.clients[clientId].channel = channel;
+        this.rememberApprovedDevice(channel, deviceId);
+        this.sendEncrypted(clientId, { a: 'jok' });
+        this.broadcastMemberList(channel);
+        return;
+      }
+
+      // 同一客户端可能先申请过别的房间，先撤销旧申请，避免出现在多个候客池
+      this.removeClientFromPending(clientId);
+
+      this.clients[clientId].pendingRoom = channel;
+      this.clients[clientId].pendingName = name;
+
+      if (!this.pending[channel]) {
+        this.pending[channel] = [];
+      }
+
+      if (this.pending[channel].indexOf(clientId) === -1) {
+        this.pending[channel].push(clientId);
+      }
+
+      this.sendEncrypted(clientId, { a: 'jw' });
+
+      // 逐个询问房间内已加入的成员，由其中任意一人决定批准或拒绝
+      for (const member of this.channels[channel]) {
+        if (this.isClientInChannel(this.clients[member], channel)) {
+          this.sendEncrypted(member, { a: 'jq', c: clientId, n: name });
+        }
+      }
+    } catch (error) {
+      logEvent('message-join-request', [clientId, error], 'error');
+    }
+  }
+  // 房间内成员批准某个候客申请者
+  handleApproveJoin(clientId, decrypted) {
+    if (!isString(decrypted.c) || !this.clients[clientId].channel) {
+      return;
+    }
+
+    try {
+      const channel = this.clients[clientId].channel;
+      const targetId = decrypted.c;
+      const target = this.clients[targetId];
+
+      // 目标必须真实存在，且正好在审批者所在房间候客，否则视为无效审批
+      if (!target || target.pendingRoom !== channel) {
+        return;
+      }
+
+      this.removeClientFromPending(targetId);
+
+      target.channel = channel;
+      this.rememberApprovedDevice(channel, target.deviceId);
+
+      if (!this.channels[channel]) {
+        this.channels[channel] = [];
+      }
+
+      if (this.channels[channel].indexOf(targetId) === -1) {
+        this.channels[channel].push(targetId);
+      }
+
+      this.sendEncrypted(targetId, { a: 'jok' });
+      this.broadcastMemberList(channel);
+    } catch (error) {
+      logEvent('message-join-approve', [clientId, error], 'error');
+    }
+  }
+  // 房间内成员拒绝某个候客申请者
+  handleDenyJoin(clientId, decrypted) {
+    if (!isString(decrypted.c) || !this.clients[clientId].channel) {
+      return;
+    }
+
+    try {
+      const channel = this.clients[clientId].channel;
+      const targetId = decrypted.c;
+      const waiting = this.pending[channel];
+
+      if (!isArray(waiting) || waiting.indexOf(targetId) === -1) {
+        return;
+      }
+
+      this.removeClientFromPending(targetId);
+      this.sendEncrypted(targetId, { a: 'jno' });
+
+      // 拒绝后这条连接已无任何用途，留着只会让客户端看不到结果也无法重试
+      const denied = this.clients[targetId];
+
+      if (denied && denied.connection) {
+        this.closeConnection(denied.connection);
+      }
+    } catch (error) {
+      logEvent('message-join-deny', [clientId, error], 'error');
+    }
+  }
+  // Append a device to the room's approved set, ignoring unusable ids
+  // 把设备记入房间的已批准集合；id 不可用时直接忽略，避免污染集合
+  rememberApprovedDevice(channel, deviceId) {
+    if (!isString(deviceId)) {
+      return;
+    }
+
+    if (!this.approved[channel]) {
+      this.approved[channel] = new Set();
+    }
+
+    this.approved[channel].add(deviceId);
+  }
+  // Tell every real member of the room that a pending request is gone
+  // 通知房间内所有正式成员：某条候客申请已经不存在了
+  broadcastPendingRemoved(channel, pendingId) {
+    const members = this.channels[channel];
+
+    if (!isArray(members)) {
+      return;
+    }
+
+    for (const member of members) {
+      if (this.isClientInChannel(this.clients[member], channel)) {
+        this.sendEncrypted(member, { a: 'jq-', p: pendingId });
+      }
+    }
+  }
+  // 把客户端从候客池的所有房间列表中移除，并清空其候客字段。
+  // 返回是否真的发生过移除，调用方无须自行猜测。
+  removeClientFromPending(clientId) {
+    const removedChannels = [];
+
+    for (const channel in this.pending) {
+      const waiting = this.pending[channel];
+
+      if (!isArray(waiting)) {
+        continue;
+      }
+
+      const index = waiting.indexOf(clientId);
+
+      if (index !== -1) {
+        waiting.splice(index, 1);
+        removedChannels.push(channel);
+      }
+
+      if (waiting.length === 0) {
+        delete(this.pending[channel]);
+      }
+    }
+
+    const client = this.clients[clientId];
+
+    if (client) {
+      client.pendingRoom = null;
+      client.pendingName = null;
+    }
+
+    // The removal judgement lives here because this is the only place that can tell a
+    // real removal from a no-op, so callers (close, timeout, approve, deny) cannot
+    // produce duplicate notifications. The approved client himself is not a member yet
+    // at this point, so he receives jok only.
+    // 是否真的移除只在这里判定：只有这里能区分真移除与空操作，四个调用点因此不会
+    // 重复通知。此刻被批准者还不是房间成员，所以他只收到 jok，不会收到这条通知。
+    for (const channel of removedChannels) {
+      this.broadcastPendingRemoved(channel, clientId);
+    }
+
+    return removedChannels.length > 0;
+  }
+  // 按 clientId 发送加密消息，供审批流程复用
+  sendEncrypted(clientId, messageObj) {
+    const client = this.clients[clientId];
+
+    if (!client || !client.shared) {
+      return;
+    }
+
+    this.sendMessage(client.connection, encryptMessage(messageObj, client.shared));
   }
   // Handle client messages
   handleClientMessage(clientId, decrypted) {
@@ -390,11 +616,17 @@ export class ChatRoom {  constructor(state, env) {
         const client = this.clients[member];
 
         if (this.isClientInChannel(client, channel)) {
+          // me carries the receiver's own id: the list excludes self, so without it a
+          // client can never learn its own clientId and cannot address itself or verify
+          // the approval messages that name it.
+          // me 是收件人自己的 id：名单排除了自己，不带上它客户端就永远不知道自己的
+          // clientId，也无法据此校验那些点名自己的审批消息。
           const messageObj = {
             a: 'l',
             p: members.filter((value) => {
               return (value !== member ? true : false);
-            })
+            }),
+            me: member
           };
 
           const encrypted = encryptMessage(messageObj, client.shared);
@@ -452,6 +684,35 @@ export class ChatRoom {  constructor(state, env) {
     for (const clientId of clientsToRemove) {
       try {
         logEvent('connection-seen', clientId, 'debug');
+
+        // 删客户端之前先摘掉它在候客池和房间成员表里的登记：
+        // 候客池不清会留下幽灵等待者；成员表不清则房间永远被人占着，
+        // 后续新设备会一直等不到审批（新增审批流程后这里才会真正卡死）。
+        // 超时候客者的 jq- 通知由 removeClientFromPending 统一发出，这里不再重复：
+        // 四个摘除点共用同一份「是否真的移除」的判据，重复通知无从产生。
+        this.removeClientFromPending(clientId);
+
+        const channel = this.clients[clientId].channel;
+
+        if (channel && this.channels[channel]) {
+          const index = this.channels[channel].indexOf(clientId);
+
+          if (index !== -1) {
+            this.channels[channel].splice(index, 1);
+
+            // 超时摘除与正常断线必须一致地刷新成员名单：只摘不广播的话，
+            // 其他设备界面上会一直留着这个已经不在房间里的成员，
+            // 向它发消息只会被服务端静默丢弃，直到下一次名单刷新才自愈。
+            if (this.channels[channel].length > 0) {
+              this.broadcastMemberList(channel);
+            }
+          }
+
+          if (this.channels[channel].length === 0) {
+            delete(this.channels[channel]);
+          }
+        }
+
         this.clients[clientId].connection.close();
         delete this.clients[clientId];
       } catch (error) {
