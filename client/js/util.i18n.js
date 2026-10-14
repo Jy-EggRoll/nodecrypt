@@ -94,7 +94,6 @@ const LANGUAGES = {
 			'action.action_failed': 'Action failed. Please try again.',
 			'action.cannot_share': 'Cannot share:',
 					// System messages
-			'system.security_warning': '⚠️ This link uses an old format. Room data is not encrypted.',
 			'system.file_send_failed': 'Failed to send files:',
 			'system.joined': 'joined the conversation',
 			'system.left': 'left the conversation',
@@ -231,7 +230,6 @@ const LANGUAGES = {
 			'action.action_failed': '操作失败，请重试。',
 			'action.cannot_share': '无法分享：',
 					// System messages
-			'system.security_warning': '⚠️ 此链接使用旧格式，房间数据未加密。',
 			'system.file_send_failed': '文件发送失败：',
 			'system.joined': '加入了对话',
 			'system.left': '离开了对话',

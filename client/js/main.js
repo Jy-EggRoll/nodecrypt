@@ -137,6 +137,10 @@ window.addEventListener('DOMContentLoaded', () => {
 	// 初始化辅助功能和界面设置
 	// Initialize autofill, input placeholders, and menus
 	autofillRoomPwd();	setupInputPlaceholder();
+	// 在已经打开的标签页里粘贴新链接只会改片段，浏览器不会重新加载页面，
+	// 上面那次填充也就不会重跑，用户会留在旧密钥上并进错房间。地址栏是用
+	// replaceState 改写的，不会反过来触发 hashchange，所以这里不会自激。
+	window.addEventListener('hashchange', () => autofillRoomPwd());
 	setupMoreBtnMenu();
 	setupImagePreview();	setupEmojiPicker();
 	// 由于我们已经在DOM加载前预先初始化了语言设置，这里不需要重复初始化

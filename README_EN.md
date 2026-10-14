@@ -29,7 +29,7 @@ Use `npm run deploy` to deploy to Cloudflare Workers.
 
 ## 📝 Project Introduction
 
-NodeCrypt is a truly end-to-end encrypted chat system that implements a complete zero-knowledge architecture. The entire system design ensures that servers, network intermediaries, and even system administrators cannot access any plaintext message content. All encryption and decryption operations are performed locally on the client side, with the server serving only as a blind relay for encrypted data.
+NodeCrypt is an end-to-end encrypted chat system built on a complete zero-knowledge architecture. The room key is carried in the fragment of the share link (the part after `#` in the URL), and the browser never sends it to the server. Key derivation, encryption and decryption all happen locally; the server only relays content it cannot read. All the server ever gets is a room ID derived from the room key.
 
 ### System Architecture
 - **Frontend**: ES6+ modular JavaScript, no framework dependencies
@@ -43,29 +43,34 @@ NodeCrypt is a truly end-to-end encrypted chat system that implements a complete
 - **Server Blind Relay**: The server can never decrypt message content, only responsible for encrypted data relay
 - **No Database Storage**: The system does not use any persistent storage; all data exists only temporarily in memory
 - **End-to-End Encryption**: Messages are encrypted from sender to receiver throughout the entire process; no intermediary can decrypt them
-- **Forward Secrecy**: Even if keys are compromised, historical messages cannot be decrypted because there are no historical messages at all
+- **No Stored History**: The server stores no messages; history exists only in the memory of each device and disappears once the device is closed. When a new device joins, it syncs the most recent public chat history from the devices that are online at that moment
 - **Anonymous Communication**: Users do not need to register real identities; supports temporary anonymous chat
 - **Rich Experience**: Support for sending images and files, with optional themes and languages
 
 ### Privacy Protection Mechanisms
 
 - **Real-time Member Notifications**: The room online list is completely transparent; any member joining or leaving will notify all members in real-time
-- **No Historical Messages**: Newly joined users cannot see any historical chat records
+- **New Devices Need Approval**: A new device can only join after a device already in the room agrees; an approved device may return without further approval for as long as the server still remembers it, and approval is required again after the server instance restarts
+- **History Is Served by Devices**: A newly joined device asks the devices currently online in the room for the most recent public chat history (up to 500 messages, public text and system notices only, no files or images); if no device is online at the time, no history is synced
 - **Private Chat Encryption**: Clicking on a user's avatar can initiate end-to-end encrypted private conversations that are completely invisible to other room members
 
-### Room Password Mechanism
+### Room Key Mechanism
 
-Room passwords serve as **key derivation factors** in end-to-end encryption: `Final Shared Key = ECDH_Shared_Key XOR SHA256(Room Password)`
+The room key is the 6-character code in the share link, and it sits in the URL fragment (the part after `#`). The fragment is not sent with any request, so the server never receives it.
 
-- **Password Error Isolation**: Rooms with different passwords cannot decrypt each other's messages
-- **Server Blind Spot**: The server can never know the room password
+The client derives two values from the room key with PBKDF2-SHA256 (100,000 iterations, one salt per purpose): a **room ID** handed to the server for routing, and a **mask** kept only on the local machine. The session key between two devices depends on both: `Session Key = HKDF-SHA256(ECDH_shared_key ‖ mask)`.
+
+- **Room Isolation**: Different room keys derive different room IDs, so rooms can neither see nor decrypt each other's traffic
+- **The Server Cannot See the Key**: All the server gets is the room ID, and the mask is derived with a different salt, so it cannot compute the session key. The only way left for it to read messages is to brute-force the room key (a 6-character code is about 30 bits of entropy)
+- **The Link Is the Invitation**: Anyone who has the link can enter the room and decrypt its contents, so share it only with people you trust
 
 ### Three-Layer Security System
 
-#### Layer 1: RSA-2048 Server Identity Authentication
-- Server generates temporary RSA-2048 key pairs on startup, automatically rotated every 24 hours
-- Client verifies server public key on connection to prevent man-in-the-middle attacks
-- Private keys exist only in server memory and are never persistently stored
+#### Layer 1: RSA-2048 Server Public Key Signature
+- The server generates a temporary RSA-2048 key pair in memory when an instance starts, and regenerates it whenever the instance restarts (deploying a new version, idle eviction, runtime update)
+- The client verifies that the P-384 public key it receives was indeed signed by that RSA public key, which keeps a different public key from being injected along the forwarding path
+- This RSA public key has no third-party endorsement of its own, so it cannot stop the server from swapping in its own key; what really keeps the server from reading messages is the room key
+- The private key exists only in server memory and is never written to storage
 
 #### Layer 2: ECDH-P384 Key Agreement
 - Each client generates independent elliptic curve key pairs (P-384 curve)
@@ -85,7 +90,7 @@ sequenceDiagram
     participant S as Server
     participant O as Other Clients
 
-    Note over C,S: Phase 1: Server Identity Authentication (RSA-2048)
+    Note over C,S: Phase 1: Server Public Key Signature (RSA-2048)
     C->>S: WebSocket Connection
     S->>C: RSA-2048 Public Key
     
@@ -95,9 +100,9 @@ sequenceDiagram
     Note over C: Verify RSA signature and derive AES-256 key
     Note over S: Derive AES-256 key from P-384 ECDH
     
-    Note over C,S: Phase 3: Room Authentication
-    C->>S: Join Request (Room Hash, AES-256 encrypted)
-    Note over S: Add client to room/channel
+    Note over C,S: Phase 3: Joining the Room
+    C->>S: Join Request (Room ID, AES-256 encrypted)
+    Note over S: If the room already has members, ask each of them to approve this new device
     S->>C: Member List (Other client IDs, encrypted)
     
     Note over C,O: Phase 4: Inter-Client Key Exchange (Curve25519)
@@ -107,16 +112,16 @@ sequenceDiagram
     O->>S: Return other clients' Curve25519 public keys
     S->>C: Forward other clients' public keys
     
-    Note over C,O: Phase 5: Password-Enhanced Key Derivation
-    Note over C: Client Key = ECDH_Curve25519(own private key, other's public key) XOR SHA256(password)
-    Note over O: Client Key = ECDH_Curve25519(own private key, other's public key) XOR SHA256(password)
+    Note over C,O: Phase 5: Session Key Derivation (with Room Key Mixed In)
+    Note over C: Session Key = HKDF(ECDH_Curve25519(own private key, other's public key) + mask)
+    Note over O: Session Key = HKDF(ECDH_Curve25519(own private key, other's public key) + mask)
     
-    Note over C,O: Phase 6: Identity Authentication
-    C->>S: Username (ChaCha20 encrypted with client key)
+    Note over C,O: Phase 6: Username Exchange
+    C->>S: Username (ChaCha20 encrypted with session key)
     S->>O: Forward encrypted username
-    O->>S: Username (ChaCha20 encrypted with client key)
+    O->>S: Username (ChaCha20 encrypted with session key)
     S->>C: Forward encrypted username
-    Note over C,O: Both clients now verify each other's identity
+    Note over C,O: Whether the session key can be computed depends on holding the room key; clients do not verify certificates or fingerprints
     
     Note over C,O: Phase 7: Secure Message Transmission (Double-layer encryption)
     Note over C: 1. ChaCha20 encrypt(message content)<br/>2. AES-256 encrypt(transport layer wrapper)
@@ -129,7 +134,7 @@ sequenceDiagram
 ## 🛠️ Technical Implementation
 
 - **Web Cryptography API**: Native browser encryption implementation with hardware acceleration
-- **elliptic.js**: Elliptic curve cryptography library implementing Curve25519 and P-384
+- **elliptic.js**: Elliptic curve cryptography library; Curve25519 between clients is implemented by it, while P-384 between client and server uses the browser's native Web Cryptography API
 - **aes-js**: Pure JavaScript AES implementation supporting multiple modes
 - **js-chacha20**: JavaScript implementation of ChaCha20 stream cipher
 - **js-sha256**: SHA-256 hash algorithm implementation
@@ -147,8 +152,8 @@ All encryption-related code is completely open source, using standard cryptograp
 
 ## ⚠️ Security Recommendations
 
-- **Use Strong Room Passwords**: Room passwords directly affect end-to-end encryption strength; complex passwords are recommended
-- **Password Confidentiality**: If a room password is leaked, all communication content in that room may be decrypted
+- **Share the Link Only with People You Trust**: Anyone with the link can enter the room and decrypt its contents
+- **Type a Longer Code If You Want More Strength**: The link carries a 6-character code by default (about 30 bits of entropy); if you want more, type a longer room key directly, up to 26 characters
 - **Use Latest Modern Browsers**: Ensure security and performance of cryptographic APIs
 
 ## 🤝 Security Contributions

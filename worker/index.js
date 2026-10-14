@@ -35,18 +35,18 @@ export class ChatRoom {  constructor(state, env) {
     // Use objects like original server.js instead of Maps
     this.clients = {};
     this.channels = {};
-    // 候客池：{ 房间哈希: [clientId, ...] }。等待批准的客户端只登记在这里，
+    // 候客池：{ 房间标识: [clientId, ...] }。等待批准的客户端只登记在这里，
     // 不写入 clients[].channel，这样 broadcastMemberList 天然不会把它算作房间成员。
     this.pending = {};
 
-    // 已批准设备记忆：{ 房间哈希: Set<deviceId> }，用于断线重连或刷新后免二次审批。
+    // 已批准设备记忆：{ 房间标识: Set<deviceId> }，用于断线重连或刷新后免二次审批。
     // 房间变空时不立刻清除其中的条目，只记下变空时刻（见 approvedEmptySince），
     // 等房间闲置超过 APPROVED_VACANT_TTL 后由下一次加入请求顺手回收。
     // 原因：两台自有设备同时断线重连时都要凭 deviceId 免审批回来，
     // 一空就删会让它们互相等对方批准而双双卡住。
     // 刻意不用 setTimeout 或 DO alarm：alarm 需要写 state.storage，会破坏中转端零留存。
     this.approved = {};
-    // 已批准设备记忆的空置时刻：{ 房间哈希: 时间戳 }，与 approved 同步增删。
+    // 已批准设备记忆的空置时刻：{ 房间标识: 时间戳 }，与 approved 同步增删。
     this.approvedEmptySince = {};
     
     this.config = {

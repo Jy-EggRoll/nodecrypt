@@ -99,11 +99,10 @@ export function renderRooms(activeId = 0) {
 
 // Join a room
 // 加入一个房间
-export function joinRoom(userName, roomName, password, modal = null, onResult) {
+export function joinRoom(userName, roomName, modal = null, onResult) {
 	const newRd = getNewRoomData();
 	newRd.roomName = roomName;
 	newRd.myUserName = userName;
-	newRd.password = password;
 	roomsData.push(newRd);
 	const idx = roomsData.length - 1;
 	switchRoom(idx);
@@ -149,7 +148,7 @@ export function joinRoom(userName, roomName, password, modal = null, onResult) {
 	};
 	const chatInst = new window.NodeCrypt(window.config, callbacks);
 	// 设备 id 一并交给 NodeCrypt，发 'jr' 时随申请上报
-	chatInst.setCredentials(userName, roomName, password, getDeviceId());
+	chatInst.setCredentials(userName, roomName, getDeviceId());
 	chatInst.connect();
 	roomsData[idx].chat = chatInst
 }

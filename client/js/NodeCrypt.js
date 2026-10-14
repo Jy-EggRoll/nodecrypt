@@ -2,11 +2,14 @@
 // NodeCrypt 安全聊天的核心加密客户端
 
 import {
-	sha256
-} from 'js-sha256';
-import {
 	ec as elliptic
 } from 'elliptic';
+import {
+	derivePeerMask,
+	derivePeerSessionKey,
+	deriveRoomId,
+	normalizeRoomSecret
+} from './util.roomkey.js';
 import {
 	ModeOfOperation
 } from 'aes-js';
@@ -55,6 +58,8 @@ class NodeCrypt {
 		this.serverKeys = null;
 		this.serverShared = null;
 		this.credentials = null;
+		// 房间标识与掩码的派生任务，setCredentials 建立、connect 等待
+		this.credentialsReady = null;
 		this.connection = null;
 		this.reconnect = null;
 		this.ping = null;
@@ -92,18 +97,30 @@ class NodeCrypt {
 		this.decryptClientMessage = this.decryptClientMessage.bind(this)
 	}
 
-	// Set user credentials (username, channel, password)
-	// 设置用户凭证（用户名、频道、密码）
+	// 设置用户凭证（用户名、房间密钥）
+	// secret 只来自分享链接本身，派生出的房间标识交给服务器路由，掩码留在本机
 	// deviceId 可选：房间内设备用它认出已批准过的设备，缺省时按新设备处理
-	setCredentials(username, channel, password, deviceId = null) {
+	setCredentials(username, secret, deviceId = null) {
 		this.logEvent('setCredentials');
 		try {
+			const normalized = normalizeRoomSecret(secret);
+			if (!normalized) {
+				this.logEvent('setCredentials-empty-secret', null, 'error');
+				return (false)
+			}
 			this.credentials = {
 				username: username,
-				channel: sha256(channel),
-				password: sha256(password),
+				roomId: null,
+				peerMask: null,
 				deviceId: deviceId
-			}
+			};
+			// 两次 PBKDF2 只在建立连接时算一次，用同一个迭代次数。
+			// 改迭代次数或改盐都会让新旧客户端派生出不同的房间标识，
+			// 同一个房间里没刷新的客户端就会互相找不到。
+			this.credentialsReady = (async () => {
+				this.credentials.roomId = await deriveRoomId(normalized);
+				this.credentials.peerMask = await derivePeerMask(normalized)
+			})()
 		} catch (error) {
 			this.logEvent('setCredentials', error, 'error');
 			return (false)
@@ -113,13 +130,26 @@ class NodeCrypt {
 
 	// Connect to the server
 	// 连接到服务器
-	connect() {
+	async connect() {
 		if (!this.credentials) {
 			return (false)
 		}
 		this.logEvent('connect', this.config.wsAddress);
 		this.stopReconnect();
 		this.stopPing();
+		try {
+			// 秘密的派生必须先完成：拿不到房间标识与掩码时绝不退回更弱的路径
+			await this.credentialsReady
+		} catch (error) {
+			this.logEvent('connect-derive', error, 'error');
+			this.notifyServerClosed();
+			return (false)
+		}
+		if (!this.credentials.roomId || !this.credentials.peerMask) {
+			this.logEvent('connect-derive-missing');
+			this.notifyServerClosed();
+			return (false)
+		}
 		this.serverKeys = null;
 		this.serverShared = null;
 		this.channel = {};
@@ -135,6 +165,17 @@ class NodeCrypt {
 			return (false)
 		}
 		return (true)
+	}
+
+	// 派生失败时按“连接关闭”上报，界面会给出提示而不是静默继续
+	notifyServerClosed() {
+		if (this.callbacks.onServerClosed) {
+			try {
+				this.callbacks.onServerClosed()
+			} catch (error) {
+				this.logEvent('onServerClosed-callback', error, 'error')
+			}
+		}
 	}
 
 	// Clean up and disconnect
@@ -248,7 +289,7 @@ class NodeCrypt {
 					}, this.serverKeys.privateKey, 384)).slice(8, 40);
 					const joinRequest = {
 						a: 'jr',
-						p: this.credentials.channel,
+						p: this.credentials.roomId,
 						n: this.credentials.username
 					};
 					if (this.isString(this.credentials.deviceId)) {
@@ -408,7 +449,9 @@ class NodeCrypt {
 						c: serverDecrypted.c
 					}, this.serverShared))
 				}
-				this.channel[serverDecrypted.c].shared = Buffer.from(this.xorHex(this.channel[serverDecrypted.c].keys.derive(this.clientEc.keyFromPublic(serverDecrypted.p, 'hex').getPublic()).toString('hex').padEnd(64, '8').substr(0, 64), this.credentials.password), 'hex');
+				this.channel[serverDecrypted.c].shared = Buffer.from(derivePeerSessionKey(
+					Buffer.from(this.channel[serverDecrypted.c].keys.derive(this.clientEc.keyFromPublic(serverDecrypted.p, 'hex').getPublic()).toString('hex').padEnd(64, '8').substr(0, 64), 'hex'),
+					this.credentials.peerMask));
 				this.sendMessage(this.encryptServerMessage({
 					a: 'c',
 					p: this.encryptClientMessage({
@@ -844,17 +887,6 @@ class NodeCrypt {
 			this.logEvent('decryptClientMessage', error, 'error')
 		}
 		return (decrypted)
-	}
-
-	// XOR two hex strings
-	// 对两个十六进制字符串进行异或
-	xorHex(a, b) {
-		let result = '',
-			hexLength = Math.min(a.length, b.length);
-		for (let i = 0; i < hexLength; ++i) {
-			result += (parseInt(a.charAt(i), 16) ^ parseInt(b.charAt(i), 16)).toString(16)
-		}
-		return (result)
 	}
 
 	// Check if value is a string
