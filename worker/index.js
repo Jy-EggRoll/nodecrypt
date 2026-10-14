@@ -308,9 +308,9 @@ export class ChatRoom {  constructor(state, env) {
 
       const action = decrypted.a;
 
-      if (action === 'j') {
-        this.handleJoinChannel(clientId, decrypted);
-      } else if (action === 'jr') {
+      // 老客户端发的 j 也并到申请路径上：服务端无法分辨「尚未升级的客户端」与
+      // 「故意绕过审批的人」，只要还留一条直接放行的分支，审批就等于不存在。
+      if (action === 'jr' || action === 'j') {
         this.handleJoinRequest(clientId, decrypted);
       } else if (action === 'ja') {
         this.handleApproveJoin(clientId, decrypted);
@@ -326,32 +326,6 @@ export class ChatRoom {  constructor(state, env) {
       logEvent('process-encrypted-message', [clientId, error], 'error');
     } finally {
       decrypted = null;
-    }
-  }
-  // Handle channel join requests
-  // 旧协议路径：收到即放行，无候客审批。已被 jr（handleJoinRequest）取代，
-  // 保留仅为兼容尚未升级的客户端，新客户端不再走这里。
-  handleJoinChannel(clientId, decrypted) {
-    if (!isString(decrypted.p) || this.clients[clientId].channel) {
-      return;
-    }
-
-    try {
-      const channel = decrypted.p;
-
-      this.clients[clientId].channel = channel;
-
-      if (!this.channels[channel]) {
-        this.channels[channel] = [clientId];
-      } else {
-        this.channels[channel].push(clientId);
-      }
-
-      this.clearApprovedVacancy(channel);
-      this.broadcastMemberList(channel);
-
-    } catch (error) {
-      logEvent('message-join', [clientId, error], 'error');
     }
   }
   // 新设备候客：申请加入房间，由房间内已有设备批准后才真正加入
