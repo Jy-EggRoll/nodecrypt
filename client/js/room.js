@@ -426,8 +426,13 @@ function startHistoryCollection(idx) {
 
 // Pick the entries that are allowed to travel with a history reply
 // 挑出允许随历史回应传递的条目
-// 文件分卷与图片不参与同步：历史里只剩线索没有内容，
-// 传过去会变成点开下载却拿不到数据的死卡片，因此只放 system 与纯文本。
+// 同步范围的取舍，三类各有原因：
+// 私聊内容一律不带：回应历史时对任何询问者都答，带上私聊等于让房间内任意设备
+// 都能拿到别人的私聊记录，所以这里只认 msgType 恰为 text 的公开文本。
+// 文件卡不带：卡里只有文件名这类线索，字节在分卷消息里，而分卷从不进入消息记录，
+// 传过去只会变成点开拿不到数据的卡片。
+// 图片不带的原因与上面不同，是体积不是可读性：图片内容整段内联在条目里，
+// 两次 base64 后约膨胀 1.9 倍，很容易顶掉下面的体积预算。
 function collectSyncableEntries(rd) {
 	const list = (rd && rd.messages) || [];
 	const entries = [];
