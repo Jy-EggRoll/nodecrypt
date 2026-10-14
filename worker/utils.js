@@ -62,23 +62,33 @@ export const decryptMessage = (message, key) => {
 
 };
 
-export const logEvent = (source, message, level) => {
-  if (
-    level !== 'debug' ||
-    true // config.debug would go here
-  ) {
+// 日志级别开关：默认只输出 warn 及以上，避免 debug/trace 把消息内容带进日志
+const LOG_LEVELS = { trace: 0, debug: 1, info: 2, warn: 3, error: 4, fatal: 5 };
 
-    const date = new Date(),
-      dateString = date.getFullYear() + '-' +
-      ('0' + (date.getMonth() + 1)).slice(-2) + '-' +
-      ('0' + date.getDate()).slice(-2) + ' ' +
-      ('0' + date.getHours()).slice(-2) + ':' +
-      ('0' + date.getMinutes()).slice(-2) + ':' +
-      ('0' + date.getSeconds()).slice(-2);
+let currentLogLevel = 'warn';
 
-    console.log('[' + dateString + ']', (level ? level.toUpperCase() : 'INFO'), source + (message ? ':' : ''), (message ? message : ''));
-
+export const setLogLevel = (level) => {
+  if (Object.prototype.hasOwnProperty.call(LOG_LEVELS, level)) {
+    currentLogLevel = level;
   }
+};
+
+export const logEvent = (source, message, level) => {
+  const messageLevel = level && Object.prototype.hasOwnProperty.call(LOG_LEVELS, level) ? level : 'info';
+
+  if (LOG_LEVELS[messageLevel] < LOG_LEVELS[currentLogLevel]) {
+    return;
+  }
+
+  const date = new Date(),
+    dateString = date.getFullYear() + '-' +
+    ('0' + (date.getMonth() + 1)).slice(-2) + '-' +
+    ('0' + date.getDate()).slice(-2) + ' ' +
+    ('0' + date.getHours()).slice(-2) + ':' +
+    ('0' + date.getMinutes()).slice(-2) + ':' +
+    ('0' + date.getSeconds()).slice(-2);
+
+  console.log('[' + dateString + ']', messageLevel.toUpperCase(), source + (message ? ':' : ''), (message ? message : ''));
 };
 
 export const getTime = () => {

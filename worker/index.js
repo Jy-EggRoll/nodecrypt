@@ -1,4 +1,4 @@
-import { generateClientId, encryptMessage, decryptMessage, logEvent, isString, isObject, getTime } from './utils.js';
+import { generateClientId, encryptMessage, decryptMessage, logEvent, isString, isObject, getTime, setLogLevel } from './utils.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -35,17 +35,24 @@ export class ChatRoom {  constructor(state, env) {
       seenTimeout: 60000,
       debug: false
     };
+
+    // 日志级别由 config.debug 决定：默认只输出 warn 及以上；
+    // 需要排查问题时把它置为 true，即可看到 debug 级日志。
+    if (this.config.debug) {
+      setLogLevel('debug');
+    }
     
     // Initialize RSA key pair
     this.initRSAKeyPair();
   }
 
+  // 密钥对只保存在 Durable Object 内存中，不落盘：中转端零留存。
+  // 代价是 DO 重启后密钥会重新生成，但客户端每次连接都会重新获取公钥，功能不受影响。
   async initRSAKeyPair() {
     try {
-      let stored = await this.state.storage.get('rsaKeyPair');
-      if (!stored) {
+      if (!this.keyPair) {
         console.log('Generating new RSA keypair...');
-          const keyPair = await crypto.subtle.generateKey(
+        const keyPair = await crypto.subtle.generateKey(
           {
             name: 'RSASSA-PKCS1-v1_5',
             modulusLength: 2048,
