@@ -265,7 +265,6 @@ flex-direction: column;
 
 .theme-item:hover {
 	border-color: #30a8f7;
-	transform: translateY(-2px);
 	box-shadow: 0 4px 12px rgba(48, 168, 247, 0.25);
 }
 
@@ -977,12 +976,11 @@ flex-direction: column;
 	font-size: 15px;
 	color: #222;
 	margin: 5px 5px;
-	transition: background-color 0.2s ease, transform 0.2s ease;
+	transition: background-color 0.2s ease;
 }
 
 .more-menu-item:hover {
 	background: #f5f5f5;
-	transform: translateX(2px);
 }
 
 .rightbar {
@@ -1060,12 +1058,11 @@ flex-direction: column;
 	padding: 10px 18px;
 	border-radius: 8px;
 	margin: 6px 8px;
-	transition: background-color 0.2s ease, transform 0.2s ease;
+	transition: background-color 0.2s ease;
 }
 
 .member:hover {
 	background: #f5f5f5;
-	transform: translateX(2px);
 }
 
 .member .member-info {
@@ -1218,11 +1215,6 @@ flex-direction: column;
 
 .file-download-btn:hover {
 	background: linear-gradient(135deg, #2196f3, #42a5f5);
-	transform: translateY(-2px);
-}
-
-.file-download-btn:active {
-	transform: translateY(0);
 }
 
 .file-download-btn:disabled {
@@ -1733,7 +1725,6 @@ flex-direction: column;
 
 .input-image-preview:hover {
 	border-color: #007bff;
-	transform: translateY(-1px);
 	box-shadow: 0 2px 8px rgba(0, 123, 255, 0.1); /* 调整阴影 */
 }
 
