@@ -26,34 +26,77 @@ import {
 	updateChatInputStyle
 } from './chat.js';
 
-// Utility functions for security and error handling
-// 安全和错误处理工具函数
+// Utility functions for error handling
+// 错误处理工具函数
 
-// Simple encryption/decryption using base64 and character shifting
-// 使用base64和字符偏移的简单加密/解密
-function simpleEncrypt(text) {
-	if (!text) return '';
-	// Convert to base64 and shift characters
-	const base64 = btoa(unescape(encodeURIComponent(text)));
-	return base64.split('').map(char => {
-		const code = char.charCodeAt(0);
-		return String.fromCharCode(code + 3);
-	}).join('');
+// Room code: 6 characters of [a-z0-9]
+// 房间码：6 位小写字母与数字
+const ROOM_CODE_STORAGE = 'nodecrypt_room_code';
+const ROOM_CODE_LENGTH = 6;
+const ROOM_CODE_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+
+// Generate a random room code with crypto.getRandomValues
+// 使用加密安全的随机源生成房间码
+export function generateRoomCode() {
+	const bytes = new Uint8Array(ROOM_CODE_LENGTH);
+	crypto.getRandomValues(bytes);
+	let code = '';
+	for (let i = 0; i < bytes.length; i++) {
+		// 取模会带来极轻微的偏斜，房间码不用于派生密钥之外的用途，可以接受
+		code += ROOM_CODE_ALPHABET.charAt(bytes[i] % ROOM_CODE_ALPHABET.length);
+	}
+	return code;
 }
 
-function simpleDecrypt(encrypted) {
-	if (!encrypted) return '';
+// Remember the room code in localStorage so the next visit autofills it
+// 用 localStorage 记住房间码，便于下次打开自动填入
+export function rememberRoomCode(code) {
 	try {
-		// Reverse character shifting and decode base64
-		const shifted = encrypted.split('').map(char => {
-			const code = char.charCodeAt(0);
-			return String.fromCharCode(code - 3);
-		}).join('');
-		return decodeURIComponent(escape(atob(shifted)));
+		if (code) localStorage.setItem(ROOM_CODE_STORAGE, code);
 	} catch (error) {
-		console.warn('Failed to decrypt data:', error);
+		console.warn('Failed to remember room code:', error);
+	}
+}
+
+export function getRememberedRoomCode() {
+	try {
+		return localStorage.getItem(ROOM_CODE_STORAGE) || '';
+	} catch (error) {
 		return '';
 	}
+}
+
+// Clean up a room code coming from user input
+// 规整用户输入的房间码（只保留小写字母与数字）
+export function normalizeRoomCode(value) {
+	return (value || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, ROOM_CODE_LENGTH);
+}
+
+// Device identity: remembered so an already approved device can reconnect
+// without asking the room to approve it again on every refresh
+// 设备身份：长期保存在本机，已获批准的设备重连时不必重新申请批准
+const DEVICE_ID_STORAGE = 'nodecrypt_device_id';
+
+export function getDeviceId() {
+	let deviceId = '';
+	try {
+		deviceId = localStorage.getItem(DEVICE_ID_STORAGE) || '';
+	} catch (error) {
+		deviceId = '';
+	}
+	// 只接受 32 位十六进制，避免被改写过的值传到服务端
+	if (/^[0-9a-f]{32}$/.test(deviceId)) {
+		return deviceId;
+	}
+	const bytes = new Uint8Array(16);
+	crypto.getRandomValues(bytes);
+	deviceId = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+	try {
+		localStorage.setItem(DEVICE_ID_STORAGE, deviceId);
+	} catch (error) {
+		console.warn('Failed to remember device id:', error);
+	}
+	return deviceId;
 }
 
 // Validate room data
@@ -131,13 +174,15 @@ function handleShareAction() {
 	}
 
 	const rd = roomsData[activeRoomIndex];
-	const roomName = rd.roomName.trim();
-	
-	// Encrypt room name
-	const encryptedRoom = simpleEncrypt(roomName);
-	
-	// Create share URL with encrypted data
-	const url = `${location.origin}${location.pathname}?r=${encodeURIComponent(encryptedRoom)}`;
+	// 分享链接用最短形式：域名 + 路径里的房间码，不再编码房间名
+	const code = normalizeRoomCode(rd.roomName);
+	if (!code) {
+		window.addSystemMsg && window.addSystemMsg(t('action.cannot_share', 'Cannot share:') + ' ' + t('ui.node_name', 'Room Code'));
+		return;
+	}
+
+	// Create share URL with the room code in the path
+	const url = `${location.origin}/${code}`;
 	
 	copyToClipboard(url, t('action.share_copied', 'Share link copied!'), t('action.copy_url_failed', 'Copy failed, url:'));
 }
@@ -406,12 +451,14 @@ export function loginFormHandler(modal) {
 		let userName, roomName, btn, roomInput, warnTip;
 		if (modal) {
 			userName = document.getElementById('userName-modal').value.trim();
-			roomName = document.getElementById('roomName-modal').value.trim();
+			roomName = normalizeRoomCode(document.getElementById('roomName-modal').value);
+			document.getElementById('roomName-modal').value = roomName;
 			btn = modal.querySelector('.login-btn');
 			roomInput = document.getElementById('roomName-modal')
 		} else {
 			userName = document.getElementById('userName').value.trim();
-			roomName = document.getElementById('roomName').value.trim();
+			roomName = normalizeRoomCode(document.getElementById('roomName').value);
+			document.getElementById('roomName').value = roomName;
 			btn = document.querySelector('#login-form .login-btn');
 			roomInput = document.getElementById('roomName')
 		}
@@ -448,7 +495,16 @@ export function loginFormHandler(modal) {
 			btn.innerText = t('ui.connecting', 'Connecting...')
 		}
 		window.joinRoom(userName, roomName, password, modal, function(success) {
-			if (!success && btn) {
+			if (success) {
+				// 只有真正进入房间后才记住房间码，避免记下连不上的码
+				rememberRoomCode(roomName);
+				// 用户可能在输入框里改成了另一个码，成功后必须把地址栏同步过去，
+				// 否则刷新时路径里的旧码优先，会把人莫名拉回旧房间。
+				// 侧边栏加入的第二个房间不改网址，它只是同一个标签页里的额外房间。
+				if (!modal) {
+					window.history.replaceState({}, '', '/' + roomName);
+				}
+			} else if (btn) {
 				btn.disabled = false;
 				btn.innerText = 'ENTER'
 			}
@@ -465,8 +521,8 @@ export function generateLoginForm(isModal = false) {
 			<label for="userName${idPrefix}" class="floating-label">${t('ui.username', 'Username')}</label>
 		</div>
 		<div class="input-group">
-			<input id="roomName${idPrefix}" type="text" required minlength="1" maxlength="15" placeholder="">
-			<label for="roomName${idPrefix}" class="floating-label">${t('ui.node_name', 'Room Name')}</label>
+			<input id="roomName${idPrefix}" type="text" required minlength="1" maxlength="6" pattern="[a-z0-9]+" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="">
+			<label for="roomName${idPrefix}" class="floating-label">${t('ui.node_name', 'Room Code')}</label>
 		</div>
 		<button type="submit" class="login-btn">${t('ui.enter', 'ENTER')}</button>
 	`;
@@ -484,8 +540,63 @@ export function openLoginModal() {
 	autofillRoomPwd('-modal')
 }
 
+// Show the waiting room while the server is holding the join request
+// 显示等待界面，等待房间内设备批准
+export function showWaitingRoom(deviceName) {
+	hideWaitingRoom();
+	const waitingRoom = $id('waiting-room');
+	if (!waitingRoom) return;
+	const nameEl = waitingRoom.querySelector('#waiting-room-device');
+	if (nameEl) nameEl.textContent = deviceName || '';
+	const loginContainer = $id('login-container');
+	if (loginContainer) loginContainer.style.display = 'none';
+	waitingRoom.style.display = 'flex';
+}
+
+// Hide the waiting room; the caller decides which layer comes back
+// 隐藏等待界面，回到哪一层由调用方决定
+export function hideWaitingRoom() {
+	const waitingRoom = $id('waiting-room');
+	if (waitingRoom) waitingRoom.style.display = 'none';
+}
+
+// Ask the current user to approve or deny a client that wants to join
+// 让当前用户决定是否让申请者加入房间
+export function showJoinApproval(chat, name, clientId) {
+	if (!chat || !clientId) return;
+	// 同一时刻可能有多个申请者，因此用 class 加 data-client-id 定位，
+	// 不能用固定 id，否则多个弹窗会互相顶掉选择器
+	const existing = document.querySelector('.join-request-modal[data-client-id="' + CSS.escape(clientId) + '"]');
+	if (existing) return;
+	const modal = document.createElement('div');
+	modal.className = 'login-modal join-request-modal';
+	modal.dataset.clientId = clientId;
+	const unknownName = t('ui.anonymous', 'Anonymous');
+	modal.innerHTML = `<div class="login-modal-bg"></div><div class="login-modal-card"><h1>${t('ui.join_request_title', 'Join Request')}</h1><p class="join-request-name">${escapeHTML(name || unknownName)} ${t('ui.join_request_desc', 'wants to join this room')}</p><div class="join-request-actions"><button class="login-btn join-approve-btn">${t('ui.approve', 'Approve')}</button><button class="login-btn join-deny-btn">${t('ui.deny', 'Deny')}</button></div></div>`;
+	document.body.appendChild(modal);
+	// 多个申请者会同时产生多个弹窗，每个都自带一层遮罩。层级相同的话，
+	// 上层遮罩会压住下层弹窗的按钮，用户点不到；按弹窗数量递增，后出现的在上。
+	modal.style.zIndex = String(10000 + document.querySelectorAll('.join-request-modal').length);
+	const close = () => modal.remove();
+	modal.querySelector('.join-approve-btn').onclick = () => {
+		chat.approveJoin(clientId);
+		close();
+	};
+	modal.querySelector('.join-deny-btn').onclick = () => {
+		chat.denyJoin(clientId);
+		close();
+	};
+}
+
+// Close the approval dialog of a join request that no longer exists
+// 关闭已失效的候客申请对应的批准弹窗
+export function hideJoinApproval(clientId) {
+	if (!clientId) return;
+	const modal = document.querySelector('.join-request-modal[data-client-id="' + CSS.escape(clientId) + '"]');
+	if (modal) modal.remove();
+}
+
 // Setup member list tabs
-// 设置成员列表标签页
 export function setupTabs() {
 	const tabs = document.getElementById("member-tabs").children;
 	for (let i = 0; i < tabs.length; i++) {
@@ -499,44 +610,57 @@ export function setupTabs() {
 // Autofill room from URL
 // 从 URL 自动填充房间
 export function autofillRoomPwd(formPrefix = '') {
+	// 只有主登录表单负责生成房间码并改写地址栏。
+	// 侧边栏的「加入房间」弹窗若也生成，会覆盖用户已经记住的房间码。
+	const isMainForm = formPrefix === '';
 	const params = new URLSearchParams(window.location.search);
-	
-	// Check for new encrypted format first
-	const encryptedRoom = params.get('r');
-	
+	const roomInput = document.getElementById(formPrefix + 'roomName');
+	const pathCode = normalizeRoomCode(decodeURIComponent(window.location.pathname).split('/')[1] || '');
+
 	// Check for old plaintext format (for backward compatibility)
 	const plaintextRoom = params.get('node');
-	
+
+	// 房间码来源优先级：网址路径 → localStorage → 主表单新生成
 	let roomValue = '';
 	let isPlaintext = false;
-	
-	if (encryptedRoom) {
-		// New encrypted format
-		roomValue = simpleDecrypt(decodeURIComponent(encryptedRoom));
+
+	if (pathCode) {
+		// 分享链接的最小形式：房间码在路径第一段
+		roomValue = pathCode;
 	} else if (plaintextRoom) {
 		// Old plaintext format - show security warning
 		roomValue = decodeURIComponent(plaintextRoom);
 		isPlaintext = true;
-		
+
 		// Show security warning for plaintext URLs
 		if (window.addSystemMsg) {
 			window.addSystemMsg(t('system.security_warning', '⚠️ This link uses an old format. Room data is not encrypted.'), true);
 		}
+	} else {
+		// 没有分享链接时，沿用浏览器记住的房间码，避免每次重新生成
+		roomValue = normalizeRoomCode(getRememberedRoomCode());
 	}
-	
+	if (isMainForm && !roomValue) {
+		// 首次打开域名时自动准备一个可分享的房间码，用户不必自己想一个
+		roomValue = generateRoomCode();
+		rememberRoomCode(roomValue);
+	}
+
 	// Fill in the form fields
-	if (roomValue) {
-		const roomInput = document.getElementById(formPrefix + 'roomName');
-		if (roomInput) {
-			roomInput.value = roomValue;
-			roomInput.readOnly = true;
-			roomInput.style.background = isPlaintext ? '#fff9e6' : '#f5f5f5'; // Yellow tint for plaintext
-		}
+	if (roomValue && roomInput) {
+		roomInput.value = roomValue;
+		// 输入框保持可编辑：用户要换别的房间码时直接改，不需要额外的按钮
+		roomInput.readOnly = false;
+		if (isPlaintext) roomInput.style.background = '#fff9e6'; // Yellow tint for plaintext
 	}
-	
-	// Clear URL parameters for security
-	if (roomValue) {
-		window.history.replaceState({}, '', location.pathname);
+
+	// 地址栏保留房间码：另一台设备上的用户需要照着「域名/房间码」手输，
+	// 因此这里只丢掉多余的查询参数，不能把路径抹成 '/'。
+	if (isMainForm && roomValue) {
+		const canonicalPath = '/' + roomValue;
+		if (window.location.pathname !== canonicalPath || window.location.search !== '') {
+			window.history.replaceState({}, '', canonicalPath);
+		}
 	}
 }
 
@@ -549,7 +673,17 @@ export function initLoginForm() {
 		// Only initialize if login form is empty
 		loginFormContainer.innerHTML = generateLoginForm(false);
 	}
-	
+
+	// 房间码输入框只接受小写字母与数字，避免用户输入大写后与已有房间码不一致
+	const roomCodeInput = document.getElementById('roomName');
+	if (roomCodeInput && !roomCodeInput._codeBound) {
+		roomCodeInput._codeBound = true;
+		roomCodeInput.addEventListener('input', () => {
+			const cleaned = normalizeRoomCode(roomCodeInput.value);
+			if (cleaned !== roomCodeInput.value) roomCodeInput.value = cleaned;
+		});
+	}
+
 	// 为登录页面添加class，用于手机适配
 	// Add class to login page for mobile adaptation
 	document.body.classList.add('login-page');

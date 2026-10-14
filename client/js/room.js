@@ -11,7 +11,12 @@ import {
 } from './chat.js';
 import {
 	renderMainHeader,
-	renderUserList
+	renderUserList,
+	showWaitingRoom,
+	hideWaitingRoom,
+	showJoinApproval,
+	hideJoinApproval,
+	getDeviceId
 } from './ui.js';
 import {
 	escapeHTML
@@ -132,13 +137,68 @@ export function joinRoom(userName, roomName, password, modal = null, onResult) {
 		onClientSecured: (user) => handleClientSecured(idx, user),
 		onClientList: (list, selfId) => handleClientList(idx, list, selfId),
 		onClientLeft: (clientId) => handleClientLeft(idx, clientId),
-		onClientMessage: (msg) => handleClientMessage(idx, msg)
+		onClientMessage: (msg) => handleClientMessage(idx, msg),
+		onJoinPending: () => showWaitingRoom(userName),
+		onJoinApproved: () => hideWaitingRoom(),
+		onJoinDenied: (reason) => handleJoinDenied(idx, reason),
+		onJoinRequest: (clientId, name) => showJoinApproval(roomsData[idx].chat, name, clientId),
+		onJoinRequestCancel: (clientId) => hideJoinApproval(clientId)
 	};
 	const chatInst = new window.NodeCrypt(window.config, callbacks);
-	chatInst.setCredentials(userName, roomName, password);
+	// 设备 id 一并交给 NodeCrypt，发 'jr' 时随申请上报
+	chatInst.setCredentials(userName, roomName, password, getDeviceId());
 	chatInst.connect();
 	roomsData[idx].chat = chatInst
 }
+
+// Handle the join request being denied by the room
+// 处理加入申请被房间内设备拒绝
+export function handleJoinDenied(idx, reason) {
+	hideWaitingRoom();
+	const rd = roomsData[idx];
+	if (rd && rd.chat && typeof rd.chat.destruct === 'function') {
+		rd.chat.destruct();
+	}
+	if (rd) rd.chat = null;
+	const at = roomsData.indexOf(rd);
+	if (at >= 0) roomsData.splice(at, 1);
+	if (roomsData.length > 0) {
+		switchRoom(0);
+	} else {
+		const loginContainer = $id('login-container');
+		if (loginContainer) loginContainer.style.display = '';
+		document.body.classList.add('login-page');
+	}
+	// 退回登录层后给出提示，说明本次申请的结果
+	const message = reason || t('system.join_denied', 'Your join request was denied');
+	setTimeout(() => {
+		if (window.addSystemMsg) window.addSystemMsg(message, true);
+	}, 0);
+}
+
+// The waiting-room cancel button is rendered in index.html at page load,
+// so it needs a listener independent of joinRoom.
+// 等待界面的取消按钮写在 index.html 里，页面加载后就存在，
+// 因此它的监听不能放在 joinRoom 内部。
+function handleWaitingCancel() {
+	hideWaitingRoom();
+	const hasRoom = activeRoomIndex >= 0 && roomsData[activeRoomIndex];
+	// 先记录是否还有其他房间，决定是回登录层还是切到别的房间
+	const exitsToLogin = roomsData.length <= 1 || !hasRoom;
+	if (hasRoom) {
+		exitRoom();
+	}
+	if (exitsToLogin) {
+		const loginContainer = $id('login-container');
+		if (loginContainer) loginContainer.style.display = '';
+		document.body.classList.add('login-page');
+	}
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+	const cancelBtn = $id('waiting-cancel-btn');
+	if (cancelBtn) cancelBtn.onclick = handleWaitingCancel;
+});
 
 // Handle the client list update
 // 处理客户端列表更新

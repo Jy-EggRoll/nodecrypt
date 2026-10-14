@@ -1,4 +1,4 @@
-﻿// NodeCrypt core cryptographic client for secure chat
+// NodeCrypt core cryptographic client for secure chat
 // NodeCrypt 安全聊天的核心加密客户端
 
 import {
@@ -35,6 +35,11 @@ class NodeCrypt {
 			onClientSecured: callbacks.onClientSecured || null,
 			onClientList: callbacks.onClientList || null,
 			onClientMessage: callbacks.onClientMessage || null,
+			onJoinPending: callbacks.onJoinPending || null,
+			onJoinApproved: callbacks.onJoinApproved || null,
+			onJoinDenied: callbacks.onJoinDenied || null,
+			onJoinRequest: callbacks.onJoinRequest || null,
+			onJoinRequestCancel: callbacks.onJoinRequestCancel || null,
 		};
 		this.SERVER_KEY_STORAGE = 'nodecrypt_server_key';
 		try {
@@ -66,6 +71,8 @@ class NodeCrypt {
 		this.disconnect = this.disconnect.bind(this);
 		this.sendMessage = this.sendMessage.bind(this);
 		this.sendChannelMessage = this.sendChannelMessage.bind(this);
+		this.approveJoin = this.approveJoin.bind(this);
+		this.denyJoin = this.denyJoin.bind(this);
 		this.encryptServerMessage = this.encryptServerMessage.bind(this);
 		this.decryptServerMessage = this.decryptServerMessage.bind(this);
 		this.encryptClientMessage = this.encryptClientMessage.bind(this);
@@ -74,13 +81,15 @@ class NodeCrypt {
 
 	// Set user credentials (username, channel, password)
 	// 设置用户凭证（用户名、频道、密码）
-	setCredentials(username, channel, password) {
+	// deviceId 可选：房间内设备用它认出已批准过的设备，缺省时按新设备处理
+	setCredentials(username, channel, password, deviceId = null) {
 		this.logEvent('setCredentials');
 		try {
 			this.credentials = {
 				username: username,
 				channel: sha256(channel),
-				password: sha256(password)
+				password: sha256(password),
+				deviceId: deviceId
 			}
 		} catch (error) {
 			this.logEvent('setCredentials', error, 'error');
@@ -134,6 +143,11 @@ class NodeCrypt {
 		this.callbacks.onClientSecured = null;
 		this.callbacks.onClientList = null;
 		this.callbacks.onClientMessage = null;
+		this.callbacks.onJoinPending = null;
+		this.callbacks.onJoinApproved = null;
+		this.callbacks.onJoinDenied = null;
+		this.callbacks.onJoinRequest = null;
+		this.callbacks.onJoinRequestCancel = null;
 		this.clientEc = null;
 		this.serverKeys = null;
 		this.serverShared = null;
@@ -215,17 +229,18 @@ class NodeCrypt {
 							namedCurve: 'P-384'
 						}, true, [])
 					}, this.serverKeys.privateKey, 384)).slice(8, 40);
-					this.sendMessage(this.encryptServerMessage({
-						a: 'j',
-						p: this.credentials.channel
-					}, this.serverShared));
-					if (this.callbacks.onServerSecured) {
-						try {
-							this.callbacks.onServerSecured()
-						} catch (error) {
-							this.logEvent('onMessage-server-secured-callback', error, 'error')
-						}
+					const joinRequest = {
+						a: 'jr',
+						p: this.credentials.channel,
+						n: this.credentials.username
+					};
+					if (this.isString(this.credentials.deviceId)) {
+						// 设备身份交给服务端，已批准过的设备可跳过再次审批
+						joinRequest.d = this.credentials.deviceId;
 					}
+					this.sendMessage(this.encryptServerMessage(joinRequest, this.serverShared));
+					// 进入聊天界面改由收到 'jok'（房间内设备批准）时触发，
+					// 否则等待界面来不及显示。
 				}
 			} catch (error) {
 				this.logEvent('onMessage', error, 'error')
@@ -235,6 +250,65 @@ class NodeCrypt {
 		const serverDecrypted = this.decryptServerMessage(event.data, this.serverShared);
 		this.logEvent('onMessage-server-decrypted', serverDecrypted);
 		if (!this.isObject(serverDecrypted) || !this.isString(serverDecrypted.a)) {
+			return
+		}
+		// 候客与批准流程：服务端受理、批准、拒绝、以及他人申请入房的通知
+		if (serverDecrypted.a === 'jw') {
+			if (this.callbacks.onJoinPending) {
+				try {
+					this.callbacks.onJoinPending()
+				} catch (error) {
+					this.logEvent('onMessage-join-pending-callback', error, 'error')
+				}
+			}
+			return
+		}
+		if (serverDecrypted.a === 'jok') {
+			if (this.callbacks.onJoinApproved) {
+				try {
+					this.callbacks.onJoinApproved()
+				} catch (error) {
+					this.logEvent('onMessage-join-approved-callback', error, 'error')
+				}
+			}
+			if (this.callbacks.onServerSecured) {
+				try {
+					this.callbacks.onServerSecured()
+				} catch (error) {
+					this.logEvent('onMessage-server-secured-callback', error, 'error')
+				}
+			}
+			return
+		}
+		if (serverDecrypted.a === 'jno') {
+			if (this.callbacks.onJoinDenied) {
+				try {
+					this.callbacks.onJoinDenied(serverDecrypted.r)
+				} catch (error) {
+					this.logEvent('onMessage-join-denied-callback', error, 'error')
+				}
+			}
+			return
+		}
+		if (serverDecrypted.a === 'jq') {
+			if (this.callbacks.onJoinRequest && this.isString(serverDecrypted.c)) {
+				try {
+					this.callbacks.onJoinRequest(serverDecrypted.c, serverDecrypted.n)
+				} catch (error) {
+					this.logEvent('onMessage-join-request-callback', error, 'error')
+				}
+			}
+			return
+		}
+		// 候客申请已不存在（对方断开、超时清理，或已被房间内设备处理）
+		if (serverDecrypted.a === 'jq-' && this.isString(serverDecrypted.p)) {
+			if (this.callbacks.onJoinRequestCancel) {
+				try {
+					this.callbacks.onJoinRequestCancel(serverDecrypted.p)
+				} catch (error) {
+					this.logEvent('onMessage-join-request-cancel-callback', error, 'error')
+				}
+			}
 			return
 		}
 		if (serverDecrypted.a === 'l' && this.isArray(serverDecrypted.p)) {
@@ -266,6 +340,15 @@ class NodeCrypt {
 			}
 			if (this.callbacks.onClientList) {
 				let clients = [];
+				// 先放自己那一项：服务端下发的名单按协议排除自己（见 worker 的 broadcastMemberList），
+				// 但界面要显示「我」，而自己的 clientId 只有服务端新加的 me 字段能提供。
+				// 少了这一项，成员列表永远认不出自己，me 字段与 myId 就都白改了。
+				if (this.isString(serverDecrypted.me)) {
+					clients.push({
+						clientId: serverDecrypted.me,
+						username: this.credentials.username
+					})
+				}
 				for (const clientId in this.channel) {
 					if (this.channel[clientId].shared && this.channel[clientId].username) {
 						clients.push({
@@ -275,7 +358,8 @@ class NodeCrypt {
 					}
 				}
 				try {
-					this.callbacks.onClientList(clients)
+					// 带上服务端给本客户端的 id，界面才能把自己从成员列表中区分出来
+					this.callbacks.onClientList(clients, serverDecrypted.me)
 				} catch (error) {
 					this.logEvent('onMessage-client-list-callback', error, 'error')
 				}
@@ -513,6 +597,32 @@ class NodeCrypt {
 			}
 		}
 		return (false)
+	}
+
+	// Approve a pending join request
+	// 批准某个候客设备的加入申请
+	approveJoin(clientId) {
+		this.logEvent('approveJoin', clientId);
+		if (!this.serverShared || !this.isString(clientId)) {
+			return (false)
+		}
+		return (this.sendMessage(this.encryptServerMessage({
+			a: 'ja',
+			c: clientId
+		}, this.serverShared)))
+	}
+
+	// Deny a pending join request
+	// 拒绝某个候客设备的加入申请
+	denyJoin(clientId) {
+		this.logEvent('denyJoin', clientId);
+		if (!this.serverShared || !this.isString(clientId)) {
+			return (false)
+		}
+		return (this.sendMessage(this.encryptServerMessage({
+			a: 'jn',
+			c: clientId
+		}, this.serverShared)))
 	}
 
 	// Encrypt a message for the server
