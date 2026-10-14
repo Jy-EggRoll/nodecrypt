@@ -4,6 +4,10 @@ body {
 	height: 100vh;
 	overflow: hidden;
 	background: #fff;
+	/* 移动端浏览器会在点按的元素上盖一层半透明高亮，观感突兀。
+	   该属性适用于所有元素且可继承，写在 body 上即可覆盖全部后代；
+	   它只关掉点按瞬间的反馈层，键盘聚焦轮廓不受影响。 */
+	-webkit-tap-highlight-color: transparent;
 }
 
 .login-page{
