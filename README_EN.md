@@ -1,8 +1,8 @@
 # NodeCrypt
 
-🌐 **[中文版 README](README.md)**
+**[中文版 README](README.md)**
 
-## 🚀 Deployment Instructions
+## Deployment Instructions
 
 ### Method 1: One-Click Deploy to Cloudflare Workers
 
@@ -27,7 +27,7 @@ Access http://localhost:80
 After cloning the project and installing dependencies, use `npm run dev` to start the development server.
 Use `npm run deploy` to deploy to Cloudflare Workers.
 
-## 📝 Project Introduction
+## Project Introduction
 
 NodeCrypt is an end-to-end encrypted chat system built on a complete zero-knowledge architecture. The room key is carried in the fragment of the share link (the part after `#` in the URL), and the browser never sends it to the server. Key derivation, encryption and decryption all happen locally; the server only relays content it cannot read. All the server ever gets is a room ID derived from the room key.
 
@@ -37,12 +37,12 @@ NodeCrypt is an end-to-end encrypted chat system built on a complete zero-knowle
 - **Communication**: Real-time bidirectional WebSocket communication
 - **Build**: Vite modern build tool
 
-## 🔐 Zero-Knowledge Architecture Design
+## Zero-Knowledge Architecture Design
 
 ### Core Principles
-- **Server Blind Relay**: The server can never decrypt message content, only responsible for encrypted data relay
+- **Server Blind Relay**: The server only relays content it cannot read; it stores no messages and never gets the room key
 - **No Database Storage**: The system does not use any persistent storage; all data exists only temporarily in memory
-- **End-to-End Encryption**: Messages are encrypted from sender to receiver throughout the entire process; no intermediary can decrypt them
+- **End-to-End Encryption**: Messages travel encrypted from sender to receiver; the relay does not hold what it would need to decrypt them
 - **No Stored History**: The server stores no messages; history exists only in the memory of each device and disappears once the device is closed. When a new device joins, it syncs the most recent public chat history from the devices that are online at that moment
 - **Anonymous Communication**: Users do not need to register real identities; supports temporary anonymous chat
 - **Rich Experience**: Support for sending images and files, with optional themes and languages
@@ -82,7 +82,7 @@ The client derives two values from the room key with PBKDF2-SHA256 (100,000 iter
 - **Client Communication**: Uses ChaCha20 to encrypt actual chat content between clients
 - Each message uses independent initialization vectors (IV) and nonces
 
-## 🔄 Complete Encryption Process
+## Complete Encryption Process
 
 ```mermaid
 sequenceDiagram
@@ -131,7 +131,7 @@ sequenceDiagram
     Note over O: Decrypt AES-256 transport layer<br/>ChaCha20 decrypt to get message content
 ```
 
-## 🛠️ Technical Implementation
+## Technical Implementation
 
 - **Web Cryptography API**: Native browser encryption implementation with hardware acceleration
 - **elliptic.js**: Elliptic curve cryptography library; Curve25519 between clients is implemented by it, while P-384 between client and server uses the browser's native Web Cryptography API
@@ -139,7 +139,7 @@ sequenceDiagram
 - **js-chacha20**: JavaScript implementation of ChaCha20 stream cipher
 - **js-sha256**: SHA-256 hash algorithm implementation
 
-## 🔬 Security Verification
+## Security Verification
 
 ### Encryption Process Verification
 Users can observe the complete encryption and decryption process through browser developer tools to verify that messages are indeed encrypted during transmission.
@@ -150,26 +150,26 @@ Network packet capture tools can verify that all WebSocket transmitted data is u
 ### Code Security Audit
 All encryption-related code is completely open source, using standard cryptographic algorithms. Security researchers are welcome to conduct independent audits.
 
-## ⚠️ Security Recommendations
+## Security Recommendations
 
 - **Share the Link Only with People You Trust**: Anyone with the link can enter the room and decrypt its contents
 - **Type a Longer Code If You Want More Strength**: The link carries a 6-character code by default (about 30 bits of entropy); if you want more, type a longer room key directly, up to 26 characters
 - **Use Latest Modern Browsers**: Ensure security and performance of cryptographic APIs
 
-## 🤝 Security Contributions
+## Security Contributions
 
 Security researchers are welcome to report vulnerabilities and conduct security audits. Critical security issues will be fixed within 24 hours.
 
-## 📄 Open Source License
+## Open Source License
 
 This project uses the ISC open source license.
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 This project is for educational and technical research purposes only and must not be used for any illegal or criminal activities. Users should comply with the relevant laws and regulations of their country and region. The project author assumes no legal responsibility for any consequences arising from the use of this software. Please use this project legally and compliantly.
 
 ---
 
-**NodeCrypt** - True End-to-End Encrypted Communication 🔐
+**NodeCrypt** - True End-to-End Encrypted Communication
 
 *"In the digital age, encryption is the last line of defense for privacy"*
