@@ -1,5 +1,10 @@
 import { generateClientId, encryptMessage, decryptMessage, logEvent, isString, isObject, isArray, getTime, setLogLevel } from './utils.js';
 
+// 空房间的已批准设备记忆保留时长：超过它才允许被下一次加入请求顺手回收。
+// 之所以要留一段时间，是因为两台自有设备同时断线重连时都需要凭 deviceId 免审批回来，
+// 一空就删会让它们互相等对方批准而双双卡住。
+const APPROVED_VACANT_TTL = 10 * 60 * 1000;
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -35,10 +40,14 @@ export class ChatRoom {  constructor(state, env) {
     this.pending = {};
 
     // 已批准设备记忆：{ 房间哈希: Set<deviceId> }，用于断线重连或刷新后免二次审批。
-    // 房间变空时有意不清除，只在 Durable Object 重启时随之消失：两台自有设备同时
-    // 断线重连时都能凭 deviceId 直接回来，否则它们会互相等对方批准而双双卡住。
-    // 代价是内存里会残留少量空房间的 id 集合，对几台自有设备来说可以忽略。
+    // 房间变空时不立刻清除其中的条目，只记下变空时刻（见 approvedEmptySince），
+    // 等房间闲置超过 APPROVED_VACANT_TTL 后由下一次加入请求顺手回收。
+    // 原因：两台自有设备同时断线重连时都要凭 deviceId 免审批回来，
+    // 一空就删会让它们互相等对方批准而双双卡住。
+    // 刻意不用 setTimeout 或 DO alarm：alarm 需要写 state.storage，会破坏中转端零留存。
     this.approved = {};
+    // 已批准设备记忆的空置时刻：{ 房间哈希: 时间戳 }，与 approved 同步增删。
+    this.approvedEmptySince = {};
     
     this.config = {
       seenTimeout: 60000,
@@ -272,6 +281,7 @@ export class ChatRoom {  constructor(state, env) {
 
         if (this.channels[channel].length === 0) {
           delete(this.channels[channel]);
+          this.markApprovedVacancy(channel);
         } else if (removed) {
           // Only broadcast after a real removal. Reuse the shared implementation so
           // the me field and the exclusion rule can never drift apart from it.
@@ -337,6 +347,7 @@ export class ChatRoom {  constructor(state, env) {
         this.channels[channel].push(clientId);
       }
 
+      this.clearApprovedVacancy(channel);
       this.broadcastMemberList(channel);
 
     } catch (error) {
@@ -345,6 +356,10 @@ export class ChatRoom {  constructor(state, env) {
   }
   // 新设备候客：申请加入房间，由房间内已有设备批准后才真正加入
   handleJoinRequest(clientId, decrypted) {
+    // 加入请求是唯一稳定会发生的房间活动，把惰性回收挂在这里，
+    // 就不需要常驻定时器，也不必碰 state.storage
+    this.sweepApprovedVacancy();
+
     if (!isString(decrypted.p) || this.clients[clientId].channel) {
       return;
     }
@@ -374,6 +389,7 @@ export class ChatRoom {  constructor(state, env) {
         }
 
         this.clients[clientId].channel = channel;
+        this.clearApprovedVacancy(channel);
         this.rememberApprovedDevice(channel, deviceId);
         this.sendEncrypted(clientId, { a: 'jok' });
         this.broadcastMemberList(channel);
@@ -426,6 +442,7 @@ export class ChatRoom {  constructor(state, env) {
 
       target.channel = channel;
       this.rememberApprovedDevice(channel, target.deviceId);
+      this.clearApprovedVacancy(channel);
 
       if (!this.channels[channel]) {
         this.channels[channel] = [];
@@ -481,6 +498,34 @@ export class ChatRoom {  constructor(state, env) {
     }
 
     this.approved[channel].add(deviceId);
+  }
+  // Record when a room became empty, so its approved set can be reclaimed later
+  // 记下房间变空的时刻，供日后回收它的已批准集合
+  markApprovedVacancy(channel) {
+    if (!this.approved[channel]) {
+      return;
+    }
+
+    this.approvedEmptySince[channel] = Date.now();
+  }
+  // The room has members again, so it is no longer a reclamation candidate
+  // 房间重新有人，不再是可回收的对象
+  clearApprovedVacancy(channel) {
+    delete this.approvedEmptySince[channel];
+  }
+  // Reclaim approved sets of rooms that have stayed empty long enough
+  // 回收空置足够久的房间的已批准集合
+  // 收回的时机挂在加入请求上而不是定时器或 alarm：alarm 需要写 state.storage，
+  // 会破坏中转端零留存；定时器则要 DO 常驻，两者都不如「有活动时顺手清理」划算。
+  sweepApprovedVacancy(now = Date.now()) {
+    for (const channel in this.approvedEmptySince) {
+      if (now - this.approvedEmptySince[channel] < APPROVED_VACANT_TTL) {
+        continue;
+      }
+
+      delete this.approvedEmptySince[channel];
+      delete this.approved[channel];
+    }
   }
   // Tell every real member of the room that a pending request is gone
   // 通知房间内所有正式成员：某条候客申请已经不存在了
@@ -710,6 +755,7 @@ export class ChatRoom {  constructor(state, env) {
 
           if (this.channels[channel].length === 0) {
             delete(this.channels[channel]);
+            this.markApprovedVacancy(channel);
           }
         }
 
