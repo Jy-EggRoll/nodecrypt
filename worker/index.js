@@ -24,7 +24,8 @@ export default {
 };
 
 export class ChatRoom {  constructor(state, env) {
-    this.state = state;
+    // 签名由 Durable Objects 运行环境固定为 (state, env)；本类已不读写 state.storage（零留存），
+    // 故不再保存 state，env 亦未使用，保留签名只为与平台约定一致。
     
     // Use objects like original server.js instead of Maps
     this.clients = {};
@@ -60,45 +61,34 @@ export class ChatRoom {  constructor(state, env) {
           crypto.subtle.exportKey('spki', keyPair.publicKey),
           crypto.subtle.exportKey('pkcs8', keyPair.privateKey)
         ]);
-        
-        stored = {
+
+        this.keyPair = {
           rsaPublic: btoa(String.fromCharCode(...new Uint8Array(publicKeyBuffer))),
-          rsaPrivateData: Array.from(new Uint8Array(privateKeyBuffer)),
+          rsaPrivate: await crypto.subtle.importKey(
+            'pkcs8',
+            new Uint8Array(privateKeyBuffer),
+            {
+              name: 'RSASSA-PKCS1-v1_5',
+              hash: 'SHA-256'
+            },
+            false,
+            ['sign']
+          ),
           createdAt: Date.now() // 记录密钥创建时间，用于后续判断是否需要轮换
         };
-        
-        await this.state.storage.put('rsaKeyPair', stored);
-        console.log('RSA key pair generated and stored');
+
+        console.log('RSA key pair generated in memory');
       }
-      
-      // Reconstruct the private key
-      if (stored.rsaPrivateData) {
-        const privateKeyBuffer = new Uint8Array(stored.rsaPrivateData);
-        
-        stored.rsaPrivate = await crypto.subtle.importKey(
-          'pkcs8',
-          privateKeyBuffer,
-          {
-            name: 'RSASSA-PKCS1-v1_5',
-            hash: 'SHA-256'
-          },
-          false,
-          ['sign']
-        );      }
-        this.keyPair = stored;
-      
-      // 检查密钥是否需要轮换（如果已创建超过24小时）
-      if (stored.createdAt && (Date.now() - stored.createdAt > 24 * 60 * 60 * 1000)) {
-        // 如果没有任何客户端，则执行密钥轮换
-        if (Object.keys(this.clients).length === 0) {
-          console.log('密钥已使用24小时，进行轮换...');
-          await this.state.storage.delete('rsaKeyPair');
-          this.keyPair = null;
-          await this.initRSAKeyPair();
-        } else {
-          // 否则标记需要在客户端全部断开后进行轮换
-          await this.state.storage.put('pendingKeyRotation', true);
-        }
+
+      // 检查密钥是否需要轮换（如果已创建超过24小时且当前没有客户端）
+      if (
+        this.keyPair.createdAt &&
+        (Date.now() - this.keyPair.createdAt > 24 * 60 * 60 * 1000) &&
+        Object.keys(this.clients).length === 0
+      ) {
+        console.log('密钥已使用24小时且无客户端，进行轮换...');
+        this.keyPair = null;
+        return await this.initRSAKeyPair();
       }
     } catch (error) {
       console.error('Error initializing RSA key pair:', error);
@@ -174,7 +164,7 @@ export class ChatRoom {  constructor(state, env) {
         return;
       }
 
-      logEvent('message', [clientId, message], 'debug');      // Handle key exchange
+      logEvent('message', [clientId, message.length], 'debug');      // Handle key exchange
       if (!this.clients[clientId].shared && message.length < 2048) {
         try {
           // Generate ECDH key pair using P-384 curve (equivalent to secp384r1)
@@ -283,8 +273,6 @@ export class ChatRoom {  constructor(state, env) {
 
     try {
       decrypted = decryptMessage(message, this.clients[clientId].shared);
-
-      logEvent('message-decrypted', [clientId, decrypted], 'debug');
 
       if (!isObject(decrypted) || !isString(decrypted.a)) {
         return;
@@ -461,17 +449,6 @@ export class ChatRoom {  constructor(state, env) {
         delete this.clients[clientId];
       } catch (error) {
         logEvent('connection-seen', error, 'error');      }
-    }
-    
-    // 如果没有任何客户端和房间，检查是否需要轮换密钥
-    if (Object.keys(this.clients).length === 0 && Object.keys(this.channels).length === 0) {
-      const pendingRotation = await this.state.storage.get('pendingKeyRotation');
-      if (pendingRotation) {
-        console.log('没有活跃客户端或房间，执行密钥轮换...');
-        await this.state.storage.delete('rsaKeyPair');        await this.state.storage.delete('pendingKeyRotation');
-        this.keyPair = null;
-        await this.initRSAKeyPair();
-      }
     }
     
     return clientsToRemove.length; // 返回清理的连接数量
