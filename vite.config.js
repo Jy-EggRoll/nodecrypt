@@ -7,7 +7,10 @@ export default defineConfig({
 	root: 'client',
 	// Base URL
 	// 基础 URL
-	base: './',
+	// 必须是绝对路径：房间码占据网址首段（/abc123）之后，相对路径会把资源解析到
+	// /abc123/assets/...，这类请求会被单页应用兜底返回 HTML，浏览器因 MIME 不符
+	// 拒绝执行脚本，页面直接白屏。改成 / 后，任何形式的网址都取同一份资源。
+	base: '/',
 	// Plugins
 	// 插件
 	plugins: [],
