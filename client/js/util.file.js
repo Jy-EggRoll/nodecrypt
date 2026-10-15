@@ -383,22 +383,14 @@ async function handleFilesUpload(files, onSend) {
 		// Show compression progress
 		let progressElement = null;
 		
-		function showProgress(message) {
-			// 删除系统提示
-		}
-		
-		function updateProgress(message) {
-			// 删除系统提示
-		}
-		
 		if (files.length === 1) {
 			// Single file upload
 			const file = files[0];
-			showProgress();
+			
 			
 			const { volumes, originalSize, compressedSize, originalHash } = await compressFileToVolumes(file);
 			
-			updateProgress();
+			
 			
 			// Create file transfer state
 			const fileTransfer = {
@@ -426,16 +418,16 @@ async function handleFilesUpload(files, onSend) {
 			});
 			
 			// Send volumes
-			await sendVolumes(fileId, volumes, onSend, updateProgress, file.name);
+			await sendVolumes(fileId, volumes, onSend, file.name);
 			
 		} else {
 			// Multiple files upload - create archive
 			const totalSize = files.reduce((sum, file) => sum + file.size, 0);
-			showProgress();
+			
 			
 			const { volumes, originalSize, compressedSize, archiveHash, fileCount, fileManifest } = await compressFilesToArchive(files);
 			
-			updateProgress();
+			
 			
 			// Create file transfer state for archive
 			const fileTransfer = {
@@ -469,7 +461,7 @@ async function handleFilesUpload(files, onSend) {
 			});
 			
 			// Send volumes
-			await sendVolumes(fileId, volumes, onSend, updateProgress, `${files.length} files`);
+			await sendVolumes(fileId, volumes, onSend, `${files.length} files`);
 		}
 		
 	} catch (error) {
@@ -480,9 +472,9 @@ async function handleFilesUpload(files, onSend) {
 	}
 }
 
-// Send volumes with progress tracking
-// 发送分卷并跟踪进度
-async function sendVolumes(fileId, volumes, onSend, updateProgress, fileName) {
+// Send volumes
+// 发送分卷
+async function sendVolumes(fileId, volumes, onSend, fileName) {
 	const fileTransfer = window.fileTransfers.get(fileId);
 	if (!fileTransfer) return;
 	
@@ -499,7 +491,6 @@ async function sendVolumes(fileId, volumes, onSend, updateProgress, fileName) {
 			
 			fileTransfer.status = 'completed';
 			updateFileProgress(fileId);
-			updateProgress(`✓ Sent ${fileName} successfully`);
 			return;
 		}
 		
