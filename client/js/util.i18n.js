@@ -80,6 +80,17 @@ const LANGUAGES = {
 			'preview.video_failed': 'This browser cannot play that video format.',
 			'preview.text_failed': 'This file is not readable text, so it cannot be rendered.',
 			'preview.download_view': 'Download to view',
+			// Controls of the custom media player (see util.mediaPlayer.js)
+			// 自建媒体控件条的按钮名称
+			'media.play': 'Play',
+			'media.pause': 'Pause',
+			'media.mute': 'Mute',
+			'media.unmute': 'Unmute',
+			'media.fullscreen': 'Fullscreen',
+			'media.download': 'Download',
+			// The progress bar has no visible label, so screen readers have nothing else to read.
+			// 进度条没有可见文字标签，读屏只能靠这个名字。
+			'media.progress': 'Playback position',
 			'file.no_password_required': 'No password required',
 			'file.drag_drop': 'Drag and drop files here',
 			'file.or': 'or',
@@ -227,6 +238,15 @@ const LANGUAGES = {
 			'preview.video_failed': '这个浏览器播放不了该视频格式。',
 			'preview.text_failed': '该文件不是可读的文本，无法渲染。',
 			'preview.download_view': '下载后查看',
+			// 自建媒体控件条的按钮名称
+			'media.play': '播放',
+			'media.pause': '暂停',
+			'media.mute': '静音',
+			'media.unmute': '取消静音',
+			'media.fullscreen': '全屏',
+			'media.download': '下载',
+			// 进度条没有可见文字标签，读屏只能靠这个名字
+			'media.progress': '播放进度',
 			'file.no_password_required': '无需密码',
 			'file.drag_drop': '拖拽文件到此处',
 			'file.or': '或',
