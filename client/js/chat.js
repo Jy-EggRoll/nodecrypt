@@ -11,6 +11,8 @@ import {
 	escapeHTML,
 	textToHTML
 } from './util.string.js';
+// 文本消息、图片消息里夹带的文字都按 Markdown 渲染；系统消息不用它（见 addSystemMsg）
+import { renderMarkdown } from './util.markdown.js';
 import {
 	$,
 	$id,
@@ -117,7 +119,7 @@ export function addMsg(text, isHistory = false, msgType = 'text', timestamp = nu
 		// Handle image messages (can contain both text and images)
 		if (typeof text === 'object' && text.images && Array.isArray(text.images)) {
 			// New multi-image format: {text: "", images: ["data:image...", "data:image..."]}
-			const messageText = text.text ? textToHTML(text.text) : '';
+			const messageText = text.text ? renderMarkdown(text.text, { breaks: true }) : '';
 			const imageElements = text.images.map(imgData => {
 				const safeImgSrc = escapeHTML(imgData).replace(/javascript:/gi, '');
 				return `<img src="${safeImgSrc}" alt="image" class="bubble-img">`;
@@ -138,7 +140,7 @@ export function addMsg(text, isHistory = false, msgType = 'text', timestamp = nu
 		} else if (typeof text === 'object' && text.image) {
 			// Legacy single image format: {text: "", image: "data:image..."}
 			const safeImgSrc = escapeHTML(text.image).replace(/javascript:/gi, '');
-			const messageText = text.text ? textToHTML(text.text) : '';
+			const messageText = text.text ? renderMarkdown(text.text, { breaks: true }) : '';
 			
 			if (messageText) {
 				// Mixed content: text + image
@@ -161,11 +163,11 @@ export function addMsg(text, isHistory = false, msgType = 'text', timestamp = nu
 		// Add file-bubble class for special timestamp positioning
 		className += ' file-bubble';
 	} else {
-		contentHtml = textToHTML(text)
+		contentHtml = renderMarkdown(text, { breaks: true })
 	}
 	const div = createElement('div', {
 		class: className
-	}, `<span class="bubble-content">${contentHtml}</span><span class="bubble-meta">${time}</span>`);
+	}, `<span class="bubble-content md-body">${contentHtml}</span><span class="bubble-meta">${time}</span>`);
 // 复制按钮在气泡外侧左侧：DOM 顺序是 [按钮][气泡]，整行靠右；气泡高度不受影响
 	const row = createElement('div', {
 		class: 'bubble-row is-me'
@@ -202,7 +204,7 @@ export function addOtherMsg(msg, userName = '', avatar = '', isHistory = false, 
 		// Handle image messages (can contain both text and images)
 		if (typeof msg === 'object' && msg.images && Array.isArray(msg.images)) {
 			// New multi-image format: {text: "", images: ["data:image...", "data:image..."]}
-			const messageText = msg.text ? textToHTML(msg.text) : '';
+			const messageText = msg.text ? renderMarkdown(msg.text, { breaks: true }) : '';
 			const imageElements = msg.images.map(imgData => {
 				const safeImgSrc = escapeHTML(imgData).replace(/javascript:/gi, '');
 				return `<img src="${safeImgSrc}" alt="image" class="bubble-img">`;
@@ -223,7 +225,7 @@ export function addOtherMsg(msg, userName = '', avatar = '', isHistory = false, 
 		} else if (typeof msg === 'object' && msg.image) {
 			// Legacy single image format: {text: "", image: "data:image..."}
 			const safeImgSrc = escapeHTML(msg.image).replace(/javascript:/gi, '');
-			const messageText = msg.text ? textToHTML(msg.text) : '';
+			const messageText = msg.text ? renderMarkdown(msg.text, { breaks: true }) : '';
 			
 			if (messageText) {
 				// Mixed content: text + image
@@ -243,7 +245,7 @@ export function addOtherMsg(msg, userName = '', avatar = '', isHistory = false, 
 	} else if (msgType === 'file' || msgType === 'file_private') {
 		// Handle file messages
 		contentHtml = renderFileMessage(msg, false);	} else {
-		contentHtml = textToHTML(msg)
+		contentHtml = renderMarkdown(msg, { breaks: true })
 	}
 	const safeUserName = escapeHTML(userName);
 	const date = new Date(ts);
@@ -255,7 +257,7 @@ export function addOtherMsg(msg, userName = '', avatar = '', isHistory = false, 
 	if (msgType === 'file' || msgType === 'file_private') {
 		bubbleClasses += ' file-bubble';
 	}
-	bubbleWrap.innerHTML = `<span class="avatar"></span><div class="bubble-other-main"><div class="bubble-row"><div class="${bubbleClasses}"><div class="bubble-other-name">${safeUserName}</div><span class="bubble-content">${contentHtml}</span><span class="bubble-meta">${time}</span></div></div></div>`;
+	bubbleWrap.innerHTML = `<span class="avatar"></span><div class="bubble-other-main"><div class="bubble-row"><div class="${bubbleClasses}"><div class="bubble-other-name">${safeUserName}</div><span class="bubble-content md-body">${contentHtml}</span><span class="bubble-meta">${time}</span></div></div></div>`;
 	const svg = createAvatarSVG(userName);
 	const avatarEl = $('.avatar', bubbleWrap);
 	if (avatarEl) {

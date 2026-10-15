@@ -9,14 +9,8 @@
 // 为什么先试谁很重要：一次尝试要真的把字节交给浏览器解码，失败才知道不支持。顺序错
 // 了就会把图片当文本读，所以按扩展名排个先后能少走弯路，但排错也只是多花几十毫秒。
 
-import DOMPurify from 'dompurify';
-import { Marked } from 'marked';
+import { renderMarkdown } from './util.markdown.js';
 import { t } from './util.i18n.js';
-
-// marked 只配置一次；解析结果必须先过 DOMPurify 才允许写进 innerHTML，
-// 否则文件内容里的 <script>、onerror 之类会直接在聊天页里执行。
-const markdown = new Marked();
-markdown.use({ gfm: true, breaks: false });
 
 // 扩展名 → 尝试顺序的提示。只排先后，不做准入判断。
 const HINTED_ORDERS = [
@@ -130,11 +124,10 @@ function tryMedia(blob, kind, fileName) {
 async function tryMarkdown(blob, fileName) {
 	const text = await decodeText(blob, fileName);
 	const node = document.createElement('article');
-	node.className = 'file-preview-markdown';
-	// 先解析再净化，两步顺序不能反：反了就等于让原始内容先过一遍 innerHTML。
-	node.innerHTML = DOMPurify.sanitize(markdown.parse(text, { async: false }), {
-		FORBID_ATTR: ['style']
-	});
+	// 用共用渲染器的默认配置（breaks: false）：文件是按标准文档读的，
+	// 单个换行只应是折行，不该变成段落内的硬换行。
+	node.className = 'file-preview-markdown md-body';
+	node.innerHTML = renderMarkdown(text, { breaks: false });
 	return { node, url: null };
 }
 

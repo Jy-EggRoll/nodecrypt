@@ -1936,7 +1936,101 @@ h2{
 .file-preview-audio {
 	width: 100%;
 }
-/* Markdown 渲染区：只负责可读性，观感尽量贴近聊天气泡里的普通文字 */
+/* Markdown 渲染后的元素排版：文件预览与聊天消息气泡共用同一份规则。
+   为什么不带背景色和内边距：容器是谁就由谁决定底色与留白——文件预览要白底卡片，
+   消息气泡要自己的气泡色；排版规则只管元素本身，写进这里就会在气泡里盖掉气泡样式。 */
+.md-body {
+	overflow-wrap: anywhere;
+}
+/* 段落与标题的外边距用 em，跟随容器字号，避免两处调用方字号不同时留白不一致。 */
+.md-body p {
+	margin: 0.5em 0;
+}
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4,
+.md-body h5,
+.md-body h6 {
+	margin: 0.8em 0 0.4em;
+	line-height: 1.35;
+}
+.md-body h1 { font-size: 1.5em; }
+.md-body h2 { font-size: 1.3em; }
+.md-body h3 { font-size: 1.15em; }
+.md-body h4,
+.md-body h5,
+.md-body h6 { font-size: 1em; }
+.md-body ul,
+.md-body ol {
+	margin: 0.5em 0;
+	padding-left: 1.6em;
+}
+.md-body li {
+	margin: 0.2em 0;
+}
+.md-body blockquote {
+	margin: 0.5em 0;
+	padding: 0 0.8em;
+	border-left: 3px solid #d0d7de;
+	color: #6b7a86;
+}
+.md-body hr {
+	margin: 0.8em 0;
+	border: 0;
+	border-top: 1px solid #d0d7de;
+}
+/* 首尾元素的外边距归零：容器自己的留白已经够，再叠一层就会在气泡顶部或底部多出空白。 */
+.md-body > :first-child {
+	margin-top: 0;
+}
+.md-body > :last-child {
+	margin-bottom: 0;
+}
+/* 代码块必须覆盖气泡的 word-break: break-all（那是给长单词折行用的），
+   否则一行长代码会从中间被硬断开；这里改成整块横向滚动，代码本身一个字符都不改。 */
+.md-body pre {
+	white-space: pre;
+	word-break: normal;
+	overflow-wrap: normal;
+	overflow-x: auto;
+	max-width: 100%;
+	margin: 0.5em 0;
+	background: #f6f8fa;
+	padding: 8px 10px;
+	border-radius: 8px;
+}
+.md-body code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 13px;
+	word-break: normal;
+	overflow-wrap: normal;
+}
+.md-body pre code {
+	white-space: pre;
+}
+/* 表格交给自己横向滚动，不让它把气泡撑宽：display: block 让它按内容取宽并受 max-width 约束。 */
+.md-body table {
+	display: block;
+	overflow-x: auto;
+	max-width: 100%;
+	margin: 0.5em 0;
+	border-collapse: collapse;
+}
+.md-body th,
+.md-body td {
+	padding: 4px 8px;
+	border: 1px solid #d0d7de;
+	white-space: nowrap;
+}
+.md-body img {
+	max-width: 100%;
+	height: auto;
+}
+.md-body a {
+	color: #2b7fd4;
+}
+/* 文件预览的 Markdown 区：只管自己这块白底卡片，元素排版交给 .md-body */
 .file-preview-markdown {
 	background: #fff;
 	border-radius: 10px;
@@ -1944,26 +2038,6 @@ h2{
 	font-size: 14px;
 	line-height: 1.6;
 	color: #2c3e50;
-	overflow-wrap: anywhere;
-}
-.file-preview-markdown > :first-child {
-	margin-top: 0;
-}
-.file-preview-markdown > :last-child {
-	margin-bottom: 0;
-}
-.file-preview-markdown pre {
-	overflow-x: auto;
-	background: #f6f8fa;
-	padding: 8px 10px;
-	border-radius: 8px;
-}
-.file-preview-markdown code {
-	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-	font-size: 13px;
-}
-.file-preview-markdown a {
-	color: #2b7fd4;
 }
 .file-preview-fallback {
 	display: flex;
