@@ -101,7 +101,6 @@ function createUploadModal() {
 				<button class="file-upload-close">&times;</button>
 			</div>
 			<div class="file-upload-content">				<div class="file-drop-zone" id="file-drop-zone">
-					<div class="file-drop-icon">📁</div>
 					<div class="file-drop-text">
 						<p><strong>${t('file.drag_drop', 'Drag and drop files here')}</strong></p>
 						<p>${t('file.or', 'or')} <button class="file-browse-btn" type="button">${t('file.browse_files', 'browse files')}</button></p>

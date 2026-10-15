@@ -1135,13 +1135,6 @@ flex-direction: column;
 	min-width: 0;
 }
 
-.file-icon {
-	font-size: 24px;
-	margin-right: 12px;
-	flex-shrink: 0;
-	filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
-}
-
 .file-details {
 	flex: 1;
 	min-width: 0;
@@ -1423,12 +1416,6 @@ flex-direction: column;
 	background: #f0f8ff;
 }
 
-.file-drop-icon {
-	font-size: 48px;
-	margin-bottom: 16px;
-	opacity: 0.6;
-}
-
 .file-drop-text p {
 	margin: 8px 0;
 	color: #666;
@@ -1626,10 +1613,6 @@ flex-direction: column;
 		padding: 30px 15px;
 		min-height: 150px;
 	}
-	
-	.file-drop-icon {
-		font-size: 36px;
-	}
 }
 
 /* Responsive Design for File Messages */
@@ -1642,11 +1625,6 @@ flex-direction: column;
 	.file-main-content {
 		padding: 3px 3px;
 		gap: 10px;
-	}
-	
-	.file-icon {
-		font-size: 20px;
-		margin-right: 10px;
 	}
 	
 	.file-name {

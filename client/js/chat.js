@@ -389,14 +389,11 @@ function renderFileMessage(fileData, isSender) {
 		// 接收方历史消息，直接显示下载按钮（带动画效果）
 		downloadBtnStyle = 'display: flex;';
 	}
-	// Different icon for archives vs single files
-	const fileIcon = isArchive ? '📦' : '📄';
 
 	return `
 		<div class="file-message" data-file-id="${fileId}">
 			<div class="file-main-content">
 				<div class="file-info">
-					<div class="file-icon">${fileIcon}</div>
 					<div class="file-details">
 						<div class="file-name" title="${safeDisplayName}">${safeDisplayName}</div>
 						<div class="file-meta">${displayMeta}</div>
