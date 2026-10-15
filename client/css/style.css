@@ -893,19 +893,26 @@ flex-direction: column;
 	border: none;
 	background: transparent;
 	font-size: 16px;
-	line-height: 37px;
-	padding: 0;
+	/* 单行高度 = 行高 + 上下内边距 = 23 + 7 + 7 = 37px，与 min-height 保持一致。
+	   这里不要再用 37px 当行高：那样单行虽然撑到 37px，但一旦换行，每行都占 37px。 */
+	line-height: 23px;
+	/* 右侧 20px 留给容器内的附件按钮：该按钮是绝对定位，自容器右缘向左占 18px，
+	   文字若排到容器右缘就会被它压住（实测重叠约 12px）。 */
+	padding: 7px 20px 7px 0;
 	margin: 0;
 	resize: none;
 	color: #222;
-	width: 99%;
+	width: 100%;
 	overflow-y: auto !important;
 	display: block;
 	white-space: pre-wrap;
 	word-break: break-word;
 	word-wrap: break-word;
 	overflow-wrap: break-word;
-	max-width: 99%;
+	max-width: 100%;
+	/* autoGrowInput 会把 scrollHeight 直接赋给 height，内边距必须算在高度之内，
+	   否则每换一行都会多撑出一份内边距。 */
+	box-sizing: border-box;
 }
 
 .input-field-placeholder {
@@ -917,6 +924,8 @@ flex-direction: column;
 	pointer-events: none;
 	padding: 0;
 	margin: 0;
+	/* 37px 就是输入框的单行高度（23px 行高 + 上下各 7px 内边距）。占位文字只在输入框
+	   为空时可见，按单行处理即可，改输入框那组数值时要与这里一起核对。 */
 	line-height: 37px;
 	white-space: pre;
 	display: flex;
