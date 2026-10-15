@@ -640,24 +640,23 @@ flex-direction: column;
 	padding: 1px 10px 5px 10px;
 }
 
-/* 文件消息气泡放宽：容器 92%，桌面上限由 --file-bubble-max 决定。
+/* 文件消息气泡的宽度上限：桌面最高 --file-bubble-max，窄屏按容器 92%。
    为什么要把 .me / .other 逐个点名：`.bubble.other` 自带 max-width: 100%，与
    `.bubble:has(.file-message)` 同分（都是 0,2,0），谁在后面谁生效；只写后者就等于把上限
-   交给源码顺序决定，改动位置一变就被 100% 顶掉，窄屏上的 92% 也就跟着失效。
-   点名之后分值是 0,3,0，稳定压过 .bubble.other 的那条。 */
+   交给源码顺序决定，改动位置一变就被 100% 顶掉。点名之后分值是 0,3,0，稳定压过它。 */
 .bubble.me:has(.file-message),
 .bubble.other:has(.file-message),
 .bubble:has(.file-message) {
-	width: 92%;
-	max-width: var(--file-bubble-max);
+	max-width: min(92%, var(--file-bubble-max));
 }
 
-/* 不支持 :has() 的浏览器走 file-bubble 类，同样要能放宽 */
-.bubble.me.file-bubble,
-.bubble.other.file-bubble,
-.bubble.file-bubble {
+/* 预览位里真的有节点（媒体、图片、Markdown）时才用满可用宽度：控件条与文档需要横向空间。
+   为什么不再无条件写 width: 92%：实测一条只有 4 字节的 txt，卡片会被撑到 688px，
+   右侧留一整片空白，而改动前是内容多宽就多宽。上限与宽度是两件事，这里要的是上限。
+   为什么用 :not(:empty) 而不是预览状态的字符串：状态名由 JS 写，改名就静默失效，
+   “预览位里有节点”才是这件事本身。 */
+.bubble:has(.file-preview-slot:not(:empty)) {
 	width: 92%;
-	max-width: var(--file-bubble-max);
 }
 
 /* Fallback for browsers that don't support :has() */
@@ -690,7 +689,15 @@ flex-direction: column;
 .bubble-other-main {
 	display: flex;
 	flex-direction: column;
-	align-items: flex-start;
+	/* 这一层必须占满头像之外的整行宽度，并且让子项拉伸。
+	   为什么：它原来是收缩宽度（align-items: flex-start + 默认 flex: 0 1 auto），
+	   里面的 .bubble-row 于是只按内容收缩，气泡上的百分比宽度失去基准，
+	   媒体控件条被压到内容宽度（实测手机档 124px），时间文字被切、音量与下载按钮
+	   被 overflow: hidden 整块裁掉。发送侧没有这一层（直接挂在 #chat-area 下），
+	   所以同一份文件在发送方正常、在接收方挤成一团。 */
+	flex: 1 1 auto;
+	min-width: 0;
+	align-items: stretch;
 }
 
 .bubble-other-name {
@@ -2107,6 +2114,9 @@ h2{
 .media-panel {
 	--media-track: #e0e0e0;
 	--media-buffer: rgba(82, 171, 255, 0.28);
+	/* 必须显式声明：默认的 content-box 会把这 1px 边框加到 100% 宽度之外，
+	   实测面板比容器宽出 2px，右边被祖先的 overflow: hidden 裁掉一条。 */
+	box-sizing: border-box;
 	width: 100%;
 	max-width: 100%;
 	background: #fff;
@@ -2337,5 +2347,16 @@ h2{
 
 	.media-time {
 		font-size: 11px;
+	}
+}
+
+/* 再窄一档：此时播放键 30 + 进度条最小 60 + 时间 + 音量 24 + 下载 24 加间距已经接近 250px，
+   再挤就会把时间文字与按钮推出面板、被 media-panel 的 overflow: hidden 裁掉（实测过的失败态）。
+   让出的这两个按钮都有替代：音量在 iOS 上本来就不受程序控制（能力探测已经会隐藏它），
+   下载在文件卡右上角另有入口，所以先舍它们，保住播放与进度这两个不能少的功能。 */
+@container (max-width: 260px) {
+	.media-bar .media-volume,
+	.media-bar .media-download {
+		display: none;
 	}
 }
