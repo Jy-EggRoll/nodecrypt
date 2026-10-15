@@ -45,7 +45,7 @@ NodeCrypt is an end-to-end encrypted chat system built on a complete zero-knowle
 - **End-to-End Encryption**: Messages travel encrypted from sender to receiver; the relay does not hold what it would need to decrypt them
 - **No Stored History**: The server stores no messages; history exists only in the memory of each device and disappears once the device is closed. When a new device joins, it syncs the most recent public chat history from the devices that are online at that moment
 - **Anonymous Communication**: Users do not need to register real identities; supports temporary anonymous chat
-- **Rich Experience**: Support for sending images and files, with optional themes and languages
+- **Rich Experience**: Images and files travel through the same transfer pipeline, and every file gets a card of its own where images, audio, video and Markdown can be previewed in place. Files can be added three ways: the attach button, dropping them anywhere on the page, or pressing Ctrl+V anywhere on the page (screenshots included). Themes and languages are selectable as well
 
 ### Privacy Protection Mechanisms
 
