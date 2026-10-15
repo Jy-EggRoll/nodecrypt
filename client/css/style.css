@@ -1240,9 +1240,13 @@ flex-direction: column;
    为什么气泡可以满宽、按钮却不会被挤出去：气泡负责收缩、按钮固定不缩（flex: 0 0 auto），
    窄屏上先压缩气泡、由 word-break 换行，因此不会横向溢出。*/
 .bubble-row {
+	/* 按钮尺寸与间距在这里声明一次：气泡的宽度上限要用它们把按钮占的宽度扣掉，
+	   手机档在下面的媒体查询里同步改小，两处必须一起变 */
+	--msg-action-size: 36px;
+	--msg-action-gap: 7px;
 	display: flex;
 	align-items: flex-end; /* 与气泡底部对齐：和气泡内右下角的时间戳落在同一条视觉基线上 */
-	gap: 7px;
+	gap: var(--msg-action-gap);
 	min-width: 0;
 	max-width: 100%;
 }
@@ -1255,6 +1259,13 @@ flex-direction: column;
 .bubble-row > .bubble {
 	flex: 0 1 auto;
 	min-width: 0;
+}
+
+/* 带复制按钮的消息行：气泡的宽度上限先扣掉按钮与间距。不扣的话窄屏上按钮会把气泡
+   压窄，长文本因此多折一行，按钮就等于仍然占用了文字的位置。
+   只在真的挂了按钮时生效，没有按钮的消息行不受影响。*/
+.bubble-row:has(.msg-copy-btn) > .bubble {
+	max-width: min(80%, calc(100% - var(--msg-action-size) - var(--msg-action-gap)));
 }
 
 /* 自己发的气泡原本靠 margin-left: auto 把自己推到右侧；
@@ -1719,7 +1730,11 @@ flex-direction: column;
 	.file-meta {
 		font-size: 11px;
 	}
-		.msg-action-btn {
+		.bubble-row {
+		--msg-action-size: 32px;
+	}
+	
+	.msg-action-btn {
 		padding: 7px;
 		width: 32px;
 		height: 32px;
@@ -1962,18 +1977,11 @@ h2{
 	flex: 1 1 auto;
 	min-width: 0;
 }
-/* 只约定尺寸与排布；外观交给共用的 .msg-action-btn */
+/* 尺寸与外观都交给共用的 .msg-action-btn，这里只补它不负责的排布 */
 .file-preview-download {
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
-	width: 32px;
-	height: 32px;
-	padding: 6px;
 	flex-shrink: 0;
 	cursor: pointer;
-}
-.file-preview-download svg {
-	width: 18px;
-	height: 18px;
 }
