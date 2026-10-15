@@ -477,14 +477,14 @@ export function loginFormHandler(modal) {
 // 生成登录表单HTML
 // Generate login form HTML
 export function generateLoginForm(isModal = false) {
-	const idPrefix = isModal ? '-modal' : '';
+	const idSuffix = isModal ? '-modal' : '';
 	return `		<div class="input-group">
-			<input id="userName${idPrefix}" type="text" autocomplete="username" required minlength="1" maxlength="15" placeholder="">
-			<label for="userName${idPrefix}" class="floating-label">${t('ui.username', 'Username')}</label>
+			<input id="userName${idSuffix}" type="text" autocomplete="username" required minlength="1" maxlength="15" placeholder="">
+			<label for="userName${idSuffix}" class="floating-label">${t('ui.username', 'Username')}</label>
 		</div>
 		<div class="input-group">
-			<input id="roomName${idPrefix}" type="text" required minlength="1" maxlength="${SECRET_MAX_LENGTH}" pattern="[a-z0-9]+" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="">
-			<label for="roomName${idPrefix}" class="floating-label">${t('ui.node_name', 'Room Code')}</label>
+			<input id="roomName${idSuffix}" type="text" required minlength="1" maxlength="${SECRET_MAX_LENGTH}" pattern="[a-z0-9]+" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="">
+			<label for="roomName${idSuffix}" class="floating-label">${t('ui.node_name', 'Room Code')}</label>
 		</div>
 		<button type="submit" class="login-btn">${t('ui.enter', 'ENTER')}</button>
 	`;
@@ -571,25 +571,27 @@ export function setupTabs() {
 
 // Autofill room from URL
 // 从 URL 自动填充房间
-export function autofillRoomPwd(formPrefix = '') {
-	// 只有主登录表单负责生成房间密钥并改写地址栏。
-	// 侧边栏的「加入房间」弹窗不预填也不生成任何密钥，留空由用户自己输入。
-	const isMainForm = formPrefix === '';
-	const roomInput = document.getElementById(formPrefix + 'roomName');
+// 两个表单的输入框 id 靠后缀区分：主表单是 roomName，弹窗是 roomName-modal
+export function autofillRoomPwd(idSuffix = '') {
+	// 只有主登录表单改写地址栏；两个表单都会预填一个可用的房间码。
+	const isMainForm = idSuffix === '';
+	const roomInput = document.getElementById('roomName' + idSuffix);
 	// 密钥只从网址片段读取：片段不随任何请求发给服务器，路径与查询串会。
 	// 曾经放在路径或查询串里的旧链接不再兼容，读不到片段就等于没有密钥。
 	const hashSecret = normalizeRoomSecret(decodeURIComponent(window.location.hash.replace(/^#/, '')));
 
-	// 密钥只有两个来源：网址片段，或主表单新生成一个。
 	// 刻意不落任何存储：同一浏览器每次打开都得到新密钥，用户才不会误以为它是写死的。
 	let roomValue = '';
 
-	if (hashSecret) {
+	if (isMainForm && hashSecret) {
+		// 首次进入：链接里的密钥就是这台设备要用的房间
 		roomValue = hashSecret;
 	}
-	if (isMainForm && !roomValue) {
-		// 打开域名根地址时自动准备一个可分享的密钥，用户不必自己想一个；
-		// 侧边栏弹窗不在此列，它会保持空白。
+	if (!roomValue) {
+		// 打开域名根地址，或在页面内打开进入房间的弹窗时，先准备一个新的密钥。
+		// 页面内的弹窗刻意不用当前房间的码：那里多半是要新建一个房间，
+		// 预填当前房间的码只会让人以为自己进错了地方；要加入已有的房间，
+		// 直接把输入框里的内容换掉即可。
 		roomValue = generateRoomSecret();
 	}
 
