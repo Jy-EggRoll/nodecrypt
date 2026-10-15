@@ -12,6 +12,7 @@
 import DOMPurify from 'dompurify';
 import { Marked } from 'marked';
 import { t } from './util.i18n.js';
+import { createMediaPanel } from './util.mediaPlayer.js';
 
 // marked 只配置一次；解析结果必须先过 DOMPurify 才允许写进 innerHTML，
 // 否则文件内容里的 <script>、onerror 之类会直接在聊天页里执行。
@@ -106,13 +107,28 @@ function tryMedia(blob, kind, fileName) {
 			const url = URL.createObjectURL(blob);
 			const el = document.createElement(isAudio ? 'audio' : 'video');
 			el.className = isAudio ? 'file-preview-audio' : 'file-preview-video';
-			el.controls = true;
+			// 不要原生控件：窄气泡里原生控件会先压扁时间、再挤没音量条，改不动也点不准。
+			// 播放与解码仍由这个元素负责，界面交给 createMediaPanel。见 util.mediaPlayer.js。
+			el.controls = false;
 			el.preload = 'auto';
 			if (!isAudio) {
 				el.playsInline = true;
 				el.setAttribute('playsinline', '');
 			}
-			el.onloadedmetadata = () => resolve({ node: el, url });
+			// 等元数据到齐再包控件条：时长、能不能写音量这两件事都要读元数据才有结论。
+			el.onloadedmetadata = () =>
+				resolve({
+					node: createMediaPanel(el, {
+						// 下载入口在这里现查文件卡上的 fileId，而不是让 mountFilePreview 多传一个参数：
+						// 那条调用链上还有别的预览类型在共用，签名一改就得跟着动别人的逻辑。
+						// 点击时才读，所以离线组装的节点后来被挂进消息卡也照样找得到 id。
+						onDownload: () => {
+							const fileId = el.closest('.file-message')?.dataset.fileId;
+							if (fileId && typeof window.downloadFile === 'function') window.downloadFile(fileId);
+						}
+					}),
+					url
+				});
 			el.onerror = () => {
 				URL.revokeObjectURL(url);
 				reject(new Error(reason));

@@ -640,6 +640,26 @@ flex-direction: column;
 	padding: 1px 10px 5px 10px;
 }
 
+/* 文件消息气泡放宽：容器 92%，桌面上限由 --file-bubble-max 决定。
+   为什么要把 .me / .other 逐个点名：`.bubble.other` 自带 max-width: 100%，与
+   `.bubble:has(.file-message)` 同分（都是 0,2,0），谁在后面谁生效；只写后者就等于把上限
+   交给源码顺序决定，改动位置一变就被 100% 顶掉，窄屏上的 92% 也就跟着失效。
+   点名之后分值是 0,3,0，稳定压过 .bubble.other 的那条。 */
+.bubble.me:has(.file-message),
+.bubble.other:has(.file-message),
+.bubble:has(.file-message) {
+	width: 92%;
+	max-width: var(--file-bubble-max);
+}
+
+/* 不支持 :has() 的浏览器走 file-bubble 类，同样要能放宽 */
+.bubble.me.file-bubble,
+.bubble.other.file-bubble,
+.bubble.file-bubble {
+	width: 92%;
+	max-width: var(--file-bubble-max);
+}
+
 /* Fallback for browsers that don't support :has() */
 /* 为不支持 :has() 的浏览器提供后备方案 */
 .bubble.file-bubble .bubble-meta {
@@ -685,6 +705,10 @@ flex-direction: column;
 	--chat-input-size: 3.25rem;
 	--chat-input-inner-padding: 1.25rem;
 	--surface-color: #fff;
+	/* 文件消息气泡的宽度上限。集中在这里声明的原因：文件名、媒体控件条、下载按钮都在
+	   同一个卡片里，历史上 320px / 280px / 200px 三个上限散落在卡片内部与媒体查询里，
+	   改一处就会在另一档被覆盖；现在只留这一个值，手机档在下面的媒体查询里覆盖。*/
+	--file-bubble-max: 760px;
 }
 
 .chat-input-area {
@@ -1114,7 +1138,9 @@ flex-direction: column;
 .file-message {
 	overflow: hidden;
 	transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-	max-width: 320px;
+	/* 曾经写死 320px：文件名稍长就要省略号，媒体控件条也被压到放不下。
+	   宽度上限统一交给气泡（--file-bubble-max），卡片只负责用满它拿到的宽度 */
+	max-width: 100%;
 	width: 100%;
 	position: relative;
 }
@@ -1125,7 +1151,8 @@ flex-direction: column;
 	align-items: center;
 	padding: 3px 3px;
 	gap: 12px;
-	max-width: 200px;
+	/* 这里曾限制 200px，把文件名与下载按钮一起挤在 200px 内；
+	   宽度由外层气泡决定，卡片内部不再自己收窄 */
 }
 
 .file-info {
@@ -1162,66 +1189,67 @@ flex-direction: column;
    为什么抽成一个类而不是各写一份：这两个按钮必须长得一模一样，
    分开维护尺寸与悬停反馈迟早会漂移，所以这里只定义一次，两边都挂这个类。*/
 .msg-action-btn {
-	padding: 10px;
-	background: linear-gradient(135deg, #52abff, #4fc3f7);
-	color: white;
-	border: none;
-	border-radius: 12px;
+	padding: 0;
+	background: #fff;
+	border: 1px solid rgba(44, 62, 80, 0.14);
+	color: #7f8c8d;
+	border-radius: 8px;
 	font-size: 12px;
 	font-weight: 600;
 	cursor: pointer;
-	transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+	transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.12s ease;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 36px;
-	height: 36px;
+	width: 28px;
+	height: 28px;
 	flex-shrink: 0;
-	position: relative;
-	overflow: hidden;
 }
 
 .msg-action-btn svg {
-	width: 18px;
-	height: 18px;
+	width: 16px;
+	height: 16px;
 	fill: currentColor;
 }
 
 .msg-action-btn:hover {
-	background: linear-gradient(135deg, #2196f3, #42a5f5);
+	background: #eaf4ff;
+	border-color: #52abff;
+	color: #2b7fd4;
+}
+
+.msg-action-btn:active {
+	transform: scale(0.94);
+}
+
+/* 键盘聚焦必须有可见轮廓：这排按钮常靠 Tab 到达，没有轮廓就只能靠猜 */
+.msg-action-btn:focus-visible {
+	outline: 2px solid #52abff;
+	outline-offset: 1px;
 }
 
 .msg-action-btn:disabled {
-	background: linear-gradient(135deg, #bdc3c7, #95a5a6);
+	background: #f7f9fa;
+	border-color: rgba(44, 62, 80, 0.1);
+	color: #b9c2c8;
 	cursor: not-allowed;
-	box-shadow: none;
-}
-
-/* Hover sweep shared by both buttons */
-/* 悬停时扫过的一道白光，同样是两边共用的视觉反馈 */
-.msg-action-btn::before {
-	content: '';
-	position: absolute;
-	top: 0;
-	left: -100%;
-	width: 100%;
-	height: 100%;
-	background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-	transition: left 0.6s ease;
-}
-
-.msg-action-btn:hover::before {
-	left: 100%;
 }
 
 /* Copy result feedback, declared after :disabled so it wins at equal specificity */
-/* 复制成功与失败的短暂反馈；放在 :disabled 之后，同优先级时以这里为准 */
+/* 复制成功与失败的短暂反馈；放在 :disabled 之后，同优先级时以这里为准。
+   为什么改成描边而不是渐变实心：这批按钮整体已经是白底描边，只把其中两个做成彩色实心，
+   在并排的一行里会突然跳出来，像是另一种控件；描边加同色图标既保留反馈的醒目度，
+   又不破坏整排的一致性。 */
 .msg-action-btn.msg-action-copied {
-	background: linear-gradient(135deg, #2fbf5f, #55d47f);
+	background: #fff;
+	border-color: #2fbf5f;
+	color: #2fbf5f;
 }
 
 .msg-action-btn.msg-action-failed {
-	background: linear-gradient(135deg, #e05a4f, #f07b70);
+	background: #fff;
+	border-color: #e05a4f;
+	color: #e05a4f;
 }
 
 /* Only the show/hide choreography stays here: the file card starts hidden
@@ -1242,7 +1270,7 @@ flex-direction: column;
 .bubble-row {
 	/* 按钮尺寸与间距在这里声明一次：气泡的宽度上限要用它们把按钮占的宽度扣掉，
 	   手机档在下面的媒体查询里同步改小，两处必须一起变 */
-	--msg-action-size: 36px;
+	--msg-action-size: 28px;
 	--msg-action-gap: 7px;
 	display: flex;
 	align-items: flex-end; /* 与气泡底部对齐：和气泡内右下角的时间戳落在同一条视觉基线上 */
@@ -1277,19 +1305,14 @@ flex-direction: column;
 
 /* Copy button on a text message */
 /* 文本消息的复制按钮。
-   为什么默认可见：手机没有 hover，任何“悬停才出现”的方案在触屏上都点不到，
-   所以常态就在，只用透明度压低存在感，悬停或键盘聚焦时恢复全亮。
+   为什么默认可见：手机没有 hover，任何“悬停才出现”的方案在触屏上都点不到，所以常态就在。
+   为什么不再压低透明度：按钮现在是白底描边灰图标，本身已经不抢眼；再叠一层半透明会把它
+   变成气泡背景上的一块灰斑，描边与图标的对比度也被削弱，反而更难看清。
    为什么有 margin-bottom：与气泡的 margin-bottom 取同一个值，
    否则 flex-end 对齐的是含外边距的盒子底边，按钮会视觉上掉到气泡下面。*/
 .msg-copy-btn {
 	flex: 0 0 auto;
 	margin-bottom: .375rem;
-	opacity: 0.55;
-}
-
-.msg-copy-btn:hover,
-.msg-copy-btn:focus-visible {
-	opacity: 1;
 }
 
 .file-download-btn.show {
@@ -1388,14 +1411,25 @@ flex-direction: column;
 
 }
 
+/* 私聊气泡里文件下载按钮现在是橙色渐变覆盖（.bubble.private-message .file-message .file-download-btn）。
+   私聊气泡的底色是深色（同一区块把文件名与元信息强制成白色就是因为这个底色），橙渐变在深色上
+   本来是想靠暖色跳出来，但换成新版的白底浅灰描边后，白色按钮贴在深色上会像一块补丁，
+   浅灰描边也几乎看不见。所以这一个按钮单独换成描边式：底色透明、描边与图标都用白色，
+   悬停时抬一层半透明白底表示可点。白色取自气泡里已有的白色文字，没有引入新色。
+   为什么不用同一套规则顺手改掉控件条里的按钮：控件条自带白色卡片底，按钮就落在白底上，
+   换成白色描边会变成白底白图标，反而看不见。 */
 .bubble.private-message .file-message .file-download-btn {
-	background: linear-gradient(135deg, #ff9800, #ffb74d);
-	box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3);
+	background: transparent;
+	border: 1px solid rgba(255, 255, 255, 0.72);
+	color: #fff;
+	box-shadow: none;
 }
 
 .bubble.private-message .file-message .file-download-btn:hover {
-	background: linear-gradient(135deg, #f57c00, #ff9800);
-	box-shadow: 0 4px 16px rgba(255, 152, 0, 0.4);
+	background: rgba(255, 255, 255, 0.18);
+	border-color: #fff;
+	color: #fff;
+	box-shadow: none;
 }
 
 .bubble.private-message .file-message .file-progress {
@@ -1714,8 +1748,13 @@ flex-direction: column;
 /* Responsive Design for File Messages */
 /* 文件消息响应式设计 */
 @media (max-width: 768px) {
+	:root {
+		/* 手机档不给气泡留硬上限：屏幕本身已经足够窄，再扣一层只会让文件名与控件条更挤 */
+		--file-bubble-max: 100%;
+	}
+
 	.file-message {
-		max-width: 280px;
+		max-width: 100%;
 	}
 	
 	.file-main-content {
@@ -1731,18 +1770,18 @@ flex-direction: column;
 		font-size: 11px;
 	}
 		.bubble-row {
-		--msg-action-size: 32px;
+		--msg-action-size: 24px;
 	}
 	
 	.msg-action-btn {
-		padding: 7px;
-		width: 32px;
-		height: 32px;
+		padding: 0;
+		width: 24px;
+		height: 24px;
 	}
 	
 	.msg-action-btn svg {
-		width: 16px;
-		height: 16px;
+		width: 14px;
+		height: 14px;
 	}
 	
 	.file-progress-container {
@@ -1984,4 +2023,245 @@ h2{
 	justify-content: center;
 	flex-shrink: 0;
 	cursor: pointer;
+}
+
+/* ---------- 媒体控件条（音频与视频共用）/ Media control bar ---------- */
+/* 为什么自己画控件条：原生 <audio controls>/<video controls> 在窄气泡里会先压扁时间文字、
+   再挤掉音量条，间距与配色也都改不动，桌面端就已经点不准了。配色全部取自项目现有色：
+   主色 #52abff / #4fc3f7、正文 #2c3e50、次要 #7f8c8d；已缓冲的那一段用主色的低透明度叠色，
+   轨道用项目里已有的中性灰 #e0e0e0。没有引入新色。 */
+.media-panel {
+	--media-track: #e0e0e0;
+	--media-buffer: rgba(82, 171, 255, 0.28);
+	width: 100%;
+	max-width: 100%;
+	background: #fff;
+	border: 1px solid rgba(44, 62, 80, 0.14);
+	border-radius: 12px;
+	overflow: hidden;
+	/* 面板自己当尺寸容器：窄不窄要按控件条实际拿到的宽度判断，而不是按视口宽度。
+	   同一个 760px 的桌面气泡里控件条并不窄，手机视口里的气泡也可能只剩 280px，
+	   用媒体查询按视口判断这两种情况都会判错。 */
+	container-type: inline-size;
+}
+
+.media-bar {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: 44px;
+	padding: 6px 10px;
+}
+
+.media-panel.is-video .media-bar {
+	border-top: 1px solid rgba(44, 62, 80, 0.14);
+}
+
+/* 音频元素没有画面，留在文档里负责播放即可，不占位置 */
+.media-panel .file-preview-audio {
+	display: none;
+}
+
+/* 视频画面区：深色底衬住不同比例的片子，点画面等同播放/暂停 */
+.media-stage {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: #2c3e50;
+	cursor: pointer;
+}
+
+.media-stage .file-preview-video {
+	display: block;
+	width: 100%;
+	max-height: 60vh;
+	border-radius: 0;
+	object-fit: contain;
+}
+
+/* 画面上的大播放按钮：暂停时出现，播放中淡出并让出点击 */
+.media-bigplay {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	transform: translate(-50%, -50%);
+	width: 64px;
+	height: 64px;
+	padding: 0;
+	border: none;
+	border-radius: 50%;
+	cursor: pointer;
+	background: rgba(255, 255, 255, 0.62);
+	color: #2c3e50;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: opacity 0.18s ease, background 0.18s ease;
+}
+
+.media-bigplay svg {
+	width: 30px;
+	height: 30px;
+	fill: currentColor;
+}
+
+.media-bigplay:hover {
+	background: rgba(255, 255, 255, 0.85);
+}
+
+.media-panel.is-playing .media-bigplay {
+	opacity: 0;
+	pointer-events: none;
+}
+
+/* 播放按钮摊在控件条里，是圆形主色按钮；它同时挂着 .msg-action-btn 以复用禁用与聚焦规则，
+   所以尺寸与底色要在后面重新声明一次。 */
+.media-play {
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	border: none;
+	border-radius: 50%;
+	cursor: pointer;
+	background: linear-gradient(135deg, #52abff, #4fc3f7);
+	color: #fff;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	transition: filter 0.18s ease, transform 0.12s ease;
+}
+
+.media-play svg {
+	width: 16px;
+	height: 16px;
+	fill: currentColor;
+}
+
+/* 悬停必须把底色与图标色再写一遍：.msg-action-btn:hover 会把底色改成浅蓝、图标改成蓝色，
+   圆形主色按钮会因此变成浅底浅图标，几乎看不见。 */
+.media-play:hover {
+	background: linear-gradient(135deg, #52abff, #4fc3f7);
+	border-color: transparent;
+	color: #fff;
+	filter: brightness(1.06);
+}
+
+.media-play:active {
+	transform: scale(0.94);
+}
+
+.media-play:disabled {
+	background: #bdc3c7;
+	cursor: default;
+}
+
+/* 进度条：轨道 6px、滑块 14px（定稿尺寸）。用 gradient 把轨道分成已播/已缓冲/未播三段，
+   两个百分比由 JS 写在 --p 与 --b 上。 */
+.media-progress {
+	-webkit-appearance: none;
+	appearance: none;
+	flex: 1 1 auto;
+	min-width: 60px;
+	height: 6px;
+	margin: 0;
+	border-radius: 999px;
+	cursor: pointer;
+	background: linear-gradient(
+		to right,
+		#52abff 0 var(--p, 0%),
+		var(--media-buffer) var(--p, 0%) var(--b, 0%),
+		var(--media-track) var(--b, 0%) 100%
+	);
+}
+
+.media-progress::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	appearance: none;
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	background: #fff;
+	border: 2px solid #52abff;
+	box-shadow: 0 1px 3px rgba(44, 62, 80, 0.25);
+	transition: transform 0.12s ease;
+}
+
+.media-progress:active::-webkit-slider-thumb {
+	transform: scale(1.18);
+}
+
+.media-progress::-moz-range-thumb {
+	width: 14px;
+	height: 14px;
+	border: 2px solid #52abff;
+	border-radius: 50%;
+	background: #fff;
+}
+
+.media-progress::-moz-range-track {
+	height: 6px;
+	border-radius: 999px;
+	background: transparent;
+}
+
+.media-progress:focus-visible {
+	outline: 2px solid #52abff;
+	outline-offset: 3px;
+}
+
+/* 时间文本：等宽数字，否则秒数进位时整行会左右抖动；
+   不许换行，窄容器里宁可让进度条变短也不让时间断成两行。 */
+.media-time {
+	flex-shrink: 0;
+	white-space: nowrap;
+	font-size: 12px;
+	color: #7f8c8d;
+	font-variant-numeric: tabular-nums;
+}
+
+.media-bar .msg-action-btn {
+	flex-shrink: 0;
+}
+
+/* 载入中：按钮禁用（JS 负责），播放图标转圈表示在等字节。
+   用旋转的图标而不是 emoji：emoji 的字形宽窄与颜色各平台不一，混在自绘控件里会跳。 */
+.media-panel.is-loading .media-play svg {
+	animation: mediaSpin 1s linear infinite;
+}
+
+@keyframes mediaSpin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+/* 控件条自己测到宽度不够时收紧间距与按钮，把宽度让给进度条与时间文本。
+   320px 容器里实测：时间文本（0:12 / 0:37）不会被换行压扁，进度条仍在 100px 以上。 */
+@container (max-width: 340px) {
+	.media-bar {
+		gap: 7px;
+		padding: 5px 8px;
+		min-height: 40px;
+	}
+
+	.media-play {
+		width: 30px;
+		height: 30px;
+	}
+
+	.media-bar .msg-action-btn {
+		width: 24px;
+		height: 24px;
+	}
+
+	.media-bar .msg-action-btn svg {
+		width: 14px;
+		height: 14px;
+	}
+
+	.media-time {
+		font-size: 11px;
+	}
 }
