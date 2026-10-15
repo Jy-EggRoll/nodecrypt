@@ -83,7 +83,6 @@ const LANGUAGES = {
 			'preview.audio_failed': 'This browser cannot play that audio format.',
 			'preview.video_failed': 'This browser cannot play that video format.',
 			'preview.text_failed': 'This file is not readable text, so it cannot be rendered.',
-			'preview.download_view': 'Download to view',
 			// Controls of the custom media player (see util.mediaPlayer.js)
 			// 自建媒体控件条的按钮名称
 			'media.play': 'Play',
@@ -244,7 +243,6 @@ const LANGUAGES = {
 			'preview.audio_failed': '这个浏览器播放不了该音频格式。',
 			'preview.video_failed': '这个浏览器播放不了该视频格式。',
 			'preview.text_failed': '该文件不是可读的文本，无法渲染。',
-			'preview.download_view': '下载后查看',
 			// 自建媒体控件条的按钮名称
 			'media.play': '播放',
 			'media.pause': '暂停',

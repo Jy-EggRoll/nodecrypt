@@ -160,8 +160,14 @@ function runProbe(kind, blob, fileName) {
 	return tryMedia(blob, kind, fileName);
 }
 
-/** 预览失败后的兜底：说清为什么看不了，并留下载入口。 */
-function renderFallback(slot, { reason, fileId, canDownload }) {
+/**
+ * 预览失败后的兜底：只说清为什么看不了。
+ *
+ * 这里刻意不再画下载按钮：卡片本身已经有一个下载入口（chat.js 的 .file-download-btn），
+ * 预览位再画一个，接收方在不可预览的文件上就会看到两个一模一样的下载按钮。
+ * 下载入口只保留卡片那一个，兜底这里只负责解释原因。
+ */
+function renderFallback(slot, { reason }) {
 	slot.dataset.previewState = 'failed';
 	const box = document.createElement('div');
 	box.className = 'file-preview-fallback';
@@ -170,19 +176,6 @@ function renderFallback(slot, { reason, fileId, canDownload }) {
 	reasonEl.className = 'file-preview-reason';
 	reasonEl.textContent = `${t('preview.unavailable', 'Preview unavailable')}: ${reason}`;
 	box.appendChild(reasonEl);
-
-	if (canDownload) {
-		const btn = document.createElement('button');
-		btn.type = 'button';
-		btn.className = 'msg-action-btn file-preview-download';
-		btn.innerHTML =
-			'<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 3C12.5523 3 13 3.44772 13 4V12.5858L15.2929 10.2929C15.6834 9.90237 16.3166 9.90237 16.7071 10.2929C17.0976 10.6834 17.0976 11.3166 16.7071 11.7071L12.7071 15.7071C12.3166 16.0976 11.6834 16.0976 11.2929 15.7071L7.29289 11.7071C6.90237 11.3166 6.90237 10.6834 7.29289 10.2929C7.68342 9.90237 8.31658 9.90237 8.70711 10.2929L11 12.5858V4C11 3.44772 11.4477 3 12 3ZM4 17C4 16.4477 4.44772 16 5 16C5.55228 16 6 16.4477 6 17V18C6 18.5523 6.44772 19 7 19H17C17.5523 19 18 18.5523 18 18V17C18 16.4477 18.4477 16 19 16C19.5523 16 20 16.4477 20 17V18C20 19.6569 18.6569 21 17 21H7C5.34315 21 4 19.6569 4 18V17Z" fill="currentColor"/></svg>';
-		btn.title = t('preview.download_view', 'Download to view');
-		btn.addEventListener('click', () => {
-			if (typeof window.downloadFile === 'function') window.downloadFile(fileId);
-		});
-		box.appendChild(btn);
-	}
 
 	slot.replaceChildren(box);
 }
@@ -199,7 +192,7 @@ function showNode(slot, node, url) {
  * 渲染一条文件消息的预览。
  * 调用方负责把字节准备好（见 util.file.js 的 getPreviewBlob），这里只做尝试与回退。
  */
-export async function mountFilePreview(slot, { blob, fileName, fileId, canDownload }) {
+export async function mountFilePreview(slot, { blob, fileName }) {
 	const { kinds, hintedOnly } = attemptOrder(fileName);
 	slot.dataset.previewState = 'loading';
 	slot.textContent = t('preview.loading', 'Loading preview…');
@@ -218,9 +211,7 @@ export async function mountFilePreview(slot, { blob, fileName, fileId, canDownlo
 	// 提示只指了一种类型时，那条失败原因就是最精准的解释（“播不了这个格式”）；
 	// 兜底顺序是挨个猜的，用其中某一步的原因解释整体会误导，所以给一句总的说明。
 	renderFallback(slot, {
-		reason: hintedOnly && reasons.length === 1 ? reasons[0] : t('preview.unsupported', 'This browser cannot preview this file.'),
-		fileId,
-		canDownload
+		reason: hintedOnly && reasons.length === 1 ? reasons[0] : t('preview.unsupported', 'This browser cannot preview this file.')
 	});
 	return false;
 }

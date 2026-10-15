@@ -680,10 +680,7 @@ export function mountFilePreviews(root) {
 				}
 				return mountFilePreview(slot, {
 					blob,
-					fileName: transfer.fileName,
-					fileId,
-					// 发送方没有分卷可下载，导航上不给一个点了没反应的按钮。
-					canDownload: Array.isArray(transfer.volumeData) && transfer.volumeData.length > 0
+					fileName: transfer.fileName
 				});
 			})
 			.catch((error) => {

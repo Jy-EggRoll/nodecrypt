@@ -2036,14 +2036,7 @@ h2{
 	flex: 1 1 auto;
 	min-width: 0;
 }
-/* 尺寸与外观都交给共用的 .msg-action-btn，这里只补它不负责的排布 */
-.file-preview-download {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	flex-shrink: 0;
-	cursor: pointer;
-}
+
 
 /* ---------- 媒体控件条（音频与视频共用）/ Media control bar ---------- */
 /* 为什么自己画控件条：原生 <audio controls>/<video controls> 在窄气泡里会先压扁时间文字、
