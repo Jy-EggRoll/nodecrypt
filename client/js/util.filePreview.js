@@ -112,15 +112,7 @@ function tryMedia(blob, kind, fileName) {
 			// 等元数据到齐再包控件条：时长、能不能写音量这两件事都要读元数据才有结论。
 			el.onloadedmetadata = () =>
 				resolve({
-					node: createMediaPanel(el, {
-						// 下载入口在这里现查文件卡上的 fileId，而不是让 mountFilePreview 多传一个参数：
-						// 那条调用链上还有别的预览类型在共用，签名一改就得跟着动别人的逻辑。
-						// 点击时才读，所以离线组装的节点后来被挂进消息卡也照样找得到 id。
-						onDownload: () => {
-							const fileId = el.closest('.file-message')?.dataset.fileId;
-							if (fileId && typeof window.downloadFile === 'function') window.downloadFile(fileId);
-						}
-					}),
+					node: createMediaPanel(el),
 					url
 				});
 			el.onerror = () => {

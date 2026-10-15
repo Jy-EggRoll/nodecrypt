@@ -87,7 +87,6 @@ const LANGUAGES = {
 			'media.mute': 'Mute',
 			'media.unmute': 'Unmute',
 			'media.fullscreen': 'Fullscreen',
-			'media.download': 'Download',
 			// The progress bar has no visible label, so screen readers have nothing else to read.
 			// 进度条没有可见文字标签，读屏只能靠这个名字。
 			'media.progress': 'Playback position',
@@ -244,7 +243,6 @@ const LANGUAGES = {
 			'media.mute': '静音',
 			'media.unmute': '取消静音',
 			'media.fullscreen': '全屏',
-			'media.download': '下载',
 			// 进度条没有可见文字标签，读屏只能靠这个名字
 			'media.progress': '播放进度',
 			'file.no_password_required': '无需密码',
