@@ -477,7 +477,6 @@ function updateFileProgress(fileId) {
 			const progress = (transfer.sentVolumes / transfer.totalVolumes) * 100;
 			if (progressContainer) {
 				progressContainer.style.display = 'block';
-				progressContainer.classList.remove('fade-out');
 			}
 			if (progressBar) progressBar.style.width = `${progress}%`;
 			if (statusText) statusText.textContent = `${t('file.sending', 'Sending')} ${transfer.sentVolumes}/${transfer.totalVolumes}`;
@@ -489,7 +488,6 @@ function updateFileProgress(fileId) {
 			const progress = (transfer.receivedVolumes.size / transfer.totalVolumes) * 100;
 			if (progressContainer) {
 				progressContainer.style.display = 'block';
-				progressContainer.classList.remove('fade-out');
 			}
 			if (progressBar) progressBar.style.width = `${progress}%`;
 			if (statusText) statusText.textContent = `${t('file.receiving', 'Receiving')} ${transfer.receivedVolumes.size}/${transfer.totalVolumes}`;
@@ -500,14 +498,10 @@ function updateFileProgress(fileId) {
 		} else if (transfer.status === 'completed') {
 			// 字节刚齐，立刻挂预览：预览位与下载按钮的显隐互不干扰，不必等按钮动画。
 			mountFilePreviews(element);
-			// 传输完成时的动画序列
+			// 进度区直接撤掉，不做淡出：卡片重绘时（切走房间再切回）本来就不带进度区，
+			// 留着淡出会让进度条在这几百毫秒里贴住刚出现的预览图。
 			if (progressContainer) {
-				// 先添加淡出动画类
-				progressContainer.classList.add('fade-out');
-				// 延迟后完全隐藏
-				setTimeout(() => {
-					progressContainer.style.display = 'none';
-				}, 400);
+				progressContainer.style.display = 'none';
 			}
 			
 			if (downloadBtn) {
@@ -516,7 +510,7 @@ function updateFileProgress(fileId) {
 					downloadBtn.classList.remove('show', 'animate-in');
 					downloadBtn.style.display = 'none';
 				} else {
-					// 延迟显示下载按钮，等进度条消失动画完成
+					// 迟一点再显示下载按钮，避免和刚出现的预览同时弹出
 					setTimeout(() => {
 						downloadBtn.style.display = 'flex';
 						downloadBtn.classList.add('show');
@@ -538,7 +532,6 @@ function updateFileProgress(fileId) {
 			const progress = (transfer.sentVolumes / transfer.totalVolumes) * 100;
 			if (progressContainer) {
 				progressContainer.style.display = 'block';
-				progressContainer.classList.remove('fade-out');
 			}
 			if (progressBar) progressBar.style.width = `${progress}%`;
 			if (statusText) statusText.textContent = t('file.transfer_stopped', 'Transfer stopped');
