@@ -1824,63 +1824,6 @@ flex-direction: column;
 
 
 
-/* Image preview in input */
-/* 输入框图片预览样式 */
-.input-image-preview {
-	position: relative;
-	display: inline-block; /* 改为 inline-block 以便并排显示 */
-	margin: 4px; /* 统一 margin */
-	border-radius: 8px;
-	overflow: visible; /* 允许移除按钮稍微超出 */
-	background: #f8f9fa;
-	border: 1px solid #e9ecef; /* 边框调整 */
-	transition: all 0.2s ease;
-	max-width: 80px; /* 限制预览容器的最大宽度 */
-}
-
-.input-image-preview:hover {
-	border-color: #007bff;
-	box-shadow: 0 2px 8px rgba(0, 123, 255, 0.1); /* 调整阴影 */
-}
-
-.input-image-preview-img {
-	display: block;
-	width: 100%; /* 图片宽度充满容器 */
-	height: 60px; /* 固定高度 */
-	object-fit: cover;
-	border-radius: 6px; /* 轻微圆角 */
-}
-
-.input-image-remove-btn {
-	position: absolute;
-	top: -10px; /* 调整位置使其更易点击 */
-	right: -10px; /* 调整位置使其更易点击 */
-	width: 22px; /* 增大点击区域 */
-	height: 22px; /* 增大点击区域 */
-	border: none;
-	border-radius: 50%;
-	background: #dc3545;
-	color: white;
-	font-size: 12px;
-	font-weight: bold;
-	cursor: pointer;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	line-height: 1;
-	transition: all 0.2s ease;
-	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-.input-image-remove-btn:hover {
-	background: #c82333;
-	transform: scale(1.1);
-}
-
-.input-image-remove-btn:active {
-	transform: scale(0.95);
-}
-
 /* Image message in chat bubble */
 /* 聊天气泡中的图片消息样式 */
 .bubble-img {
@@ -1926,11 +1869,6 @@ flex-direction: column;
 }
 
 @media (max-width: 768px) {
-	.input-image-preview-img {
-		width: 60px;
-		height: 45px;
-	}
-	
 	.bubble-img {
 		max-width: 250px;
 		max-height: 180px;
@@ -1938,11 +1876,6 @@ flex-direction: column;
 }
 
 @media (max-width: 480px) {
-	.input-image-preview-img {
-		width: 50px;
-		height: 38px;
-	}
-	
 	.bubble-img {
 		max-width: 200px;
 		max-height: 150px;

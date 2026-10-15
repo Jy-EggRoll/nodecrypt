@@ -128,10 +128,12 @@ function createUploadModal() {
 
 // Show file upload modal
 // 显示文件上传模态框
-export function showFileUploadModal(onSend) {
-	if (uploadModal) {
-		document.body.removeChild(uploadModal);
-	}
+// initialFiles 用于把页面级入口（粘贴、拖入）拿到的东西直接放进待发列表：
+// 这些入口先开模态框、再补文件，与用户在模态框里自己选文件的最终状态一致。
+export function showFileUploadModal(onSend, initialFiles = []) {
+	// 关掉可能还停留在关闭动画里的旧模态框：两层遮罩同时存在时，上层的遮罩
+	// 会挡住新模态框的按钮。
+	document.querySelectorAll('.file-upload-modal').forEach((node) => node.remove());
 
 	onSendCallback = onSend;
 	selectedFiles.clear();
@@ -140,6 +142,10 @@ export function showFileUploadModal(onSend) {
 	document.body.appendChild(uploadModal);
 	
 	setupModalEvents();
+
+	if (initialFiles.length > 0) {
+		addFiles(initialFiles);
+	}
 	
 	// Focus and animation
 	setTimeout(() => {
@@ -147,20 +153,37 @@ export function showFileUploadModal(onSend) {
 	}, 10);
 }
 
+// Put files into the pending list from a page-level entry (paste, drop)
+// 把页面级入口（粘贴、拖入）拿到的东西放进待发列表
+// 模态框已经开着就追加：用户可能正在里面挑文件，这时新开一个会把已挑好的清掉。
+export function queueFilesForUpload(files, onSend) {
+	if (files.length === 0) return;
+	if (uploadModal) {
+		addFiles(files);
+		return;
+	}
+	showFileUploadModal(onSend, files);
+}
+
 // Hide file upload modal
 // 隐藏文件上传模态框
+// 这里立刻断开 uploadModal 的引用，只把移除 DOM 的收尾动作留给动画结束：否则
+// 关闭动画的几百毫秒里 uploadModal 仍非空，此时粘贴或拖入的文件会被塞进这个
+// 正在消失、随后被清空的列表，用户看不到任何反馈。
 function hideUploadModal() {
-	if (!uploadModal) return;
-	
-	removeClass(uploadModal, 'show');
+	const closingModal = uploadModal;
+	if (!closingModal) return;
+
+	uploadModal = null;
+	selectedFiles.clear();
+	onSendCallback = null;
+
+	removeClass(closingModal, 'show');
 	setTimeout(() => {
-		if (uploadModal && uploadModal.parentNode) {
-			document.body.removeChild(uploadModal);
+		if (closingModal.parentNode) {
+			closingModal.parentNode.removeChild(closingModal);
 		}
-		uploadModal = null;
-		selectedFiles.clear();
-		onSendCallback = null;
-		
+
 		// 通知主模块重置拖拽标志位
 		window.dispatchEvent(new CustomEvent('fileUploadModalClosed'));
 	}, 300);
@@ -200,9 +223,9 @@ function setupModalEvents() {
 	// Send files
 	on(sendBtn, 'click', handleSendFiles);
 
-	// Prevent default drag behaviors on document
-	on(document, 'dragover', (e) => e.preventDefault());
-	on(document, 'drop', (e) => e.preventDefault());
+	// 这里不再挂 document 级的 dragover/drop：模态框每次打开都会走一遍本函数，
+	// 而 document 上的监听不会随模态框关闭而移除，重复挂会一路累积。
+	// 页面级的拖拽与粘贴入口统一由 util.file.js 的 setupFileSend 注册一次。
 }
 
 // Handle file input change
@@ -333,13 +356,15 @@ async function handleSendFiles() {
 	if (selectedFiles.size === 0 || !onSendCallback) return;
 
 	const files = Array.from(selectedFiles.values());
+	// 先取出回调：hideUploadModal 现在会立刻把它清空
+	const send = onSendCallback;
 	
 	try {
 		// Close modal first
 		hideUploadModal();
 		
 		// Send files through callback
-		await onSendCallback(files);
+		await send(files);
 		
 	} catch (error) {
 		console.error('Error sending files:', error);

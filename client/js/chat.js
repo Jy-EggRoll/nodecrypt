@@ -117,6 +117,8 @@ export function addMsg(text, isHistory = false, msgType = 'text', timestamp = nu
 	const date = new Date(ts);
 	const time = date.getHours().toString().padStart(2, '0') + ':' + date.getMinutes().toString().padStart(2, '0');	let contentHtml = '';	if (msgType === 'image' || msgType === 'image_private') {
 		// Handle image messages (can contain both text and images)
+		// 本客户端现在把图片当文件传，不再发这个类型。这一段留着只为一件事：
+		// 旧版本客户端发来的图片、以及本次改动之前留在本机记录里的图片仍要能显示。
 		if (typeof text === 'object' && text.images && Array.isArray(text.images)) {
 			// New multi-image format: {text: "", images: ["data:image...", "data:image..."]}
 			const messageText = text.text ? renderMarkdown(text.text, { breaks: true }) : '';
@@ -202,6 +204,7 @@ export function addOtherMsg(msg, userName = '', avatar = '', isHistory = false, 
 		class: 'bubble-other-wrap'
 	});	let contentHtml = '';	if (msgType === 'image' || msgType === 'image_private') {
 		// Handle image messages (can contain both text and images)
+		// 同上：只为兼容旧版本客户端发来的图片，本客户端不再发这个类型。
 		if (typeof msg === 'object' && msg.images && Array.isArray(msg.images)) {
 			// New multi-image format: {text: "", images: ["data:image...", "data:image..."]}
 			const messageText = msg.text ? renderMarkdown(msg.text, { breaks: true }) : '';
@@ -407,26 +410,10 @@ export function showImageModal(src) {
 // Render file message content
 // 渲染文件消息内容
 function renderFileMessage(fileData, isSender) {
-	const {
-		fileId,
-		fileName,
-		originalSize,
-		totalVolumes,
-		fileCount,
-		isArchive
-	} = fileData;
+	const { fileId, fileName, originalSize } = fileData;
 	
-	// For archive files, show file count and total size
-	let displayName, displayMeta;
-	if (isArchive && fileCount) {
-		// 使用 i18n，保持原格式
-		displayName = `${fileCount}${t('file.files', ' files')}`;
-		displayMeta = `${t('file.total', 'Total')}: ${formatFileSize(originalSize)}`;
-	} else {
-		displayName = fileName;
-		displayMeta = formatFileSize(originalSize);
-	}
-	
+	const displayName = fileName;
+	const displayMeta = formatFileSize(originalSize);
 	const safeDisplayName = escapeHTML(displayName);
 
 	// Check actual file transfer status
@@ -440,16 +427,21 @@ function renderFileMessage(fileData, isSender) {
 		if (transfer.status === 'sending') {
 			const progress = (transfer.sentVolumes / transfer.totalVolumes) * 100;
 			progressWidth = `${progress}%`;
-			statusText = `Sending ${transfer.sentVolumes}/${transfer.totalVolumes}`;
+			statusText = `${t('file.sending', 'Sending')} ${transfer.sentVolumes}/${transfer.totalVolumes}`;
 			showProgress = true;
 		} else if (transfer.status === 'receiving') {
 			const progress = (transfer.receivedVolumes.size / transfer.totalVolumes) * 100;
 			progressWidth = `${progress}%`;
-			statusText = `Receiving ${transfer.receivedVolumes.size}/${transfer.totalVolumes}`;
+			statusText = `${t('file.receiving', 'Receiving')} ${transfer.receivedVolumes.size}/${transfer.totalVolumes}`;
 			showProgress = true;
 		} else if (transfer.status === 'completed') {
 			// 完成时不显示任何状态，只显示下载按钮
 			downloadBtnStyle = isSender ? 'display: none;' : 'display: flex;';
+		} else if (transfer.status === 'failed') {
+			// 传输被拒后重绘（例如切走房间再切回来）仍然要说明中断，不能回到“正在发”的样子
+			progressWidth = `${(transfer.sentVolumes / transfer.totalVolumes) * 100}%`;
+			statusText = t('file.transfer_stopped', 'Transfer stopped');
+			showProgress = true;
 		}	} else if (isSender) {
 		// 发送方历史消息，不显示状态和下载按钮
 		downloadBtnStyle = 'display: none;';

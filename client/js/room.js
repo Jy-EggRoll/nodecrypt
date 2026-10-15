@@ -366,6 +366,7 @@ export function handleClientMessage(idx, msg) {
 	}
 
 	// Handle image messages (both new and legacy formats)
+	// 本客户端现在把图片当文件传，只保留识别与渲染，用来显示旧版本客户端发来的图片。
 	if (msgType === 'image' || msgType === 'image_private') {
 		// Already has correct type
 	} else if (!msgType.includes('_private')) {

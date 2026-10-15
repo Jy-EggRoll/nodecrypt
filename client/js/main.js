@@ -10,12 +10,6 @@ import {
 	downloadFile
 } from './util.file.js';
 
-// 从 util.image.js 中导入图片处理功能
-// Import image processing functions from util.image.js
-import {
-	setupImagePaste
-} from './util.image.js';
-
 // 从 util.emoji.js 中导入设置表情选择器的函数
 // Import setupEmojiPicker function from util.emoji.js
 import {
@@ -168,10 +162,6 @@ window.addEventListener('DOMContentLoaded', () => {
 	// Close settings panel when clicking outside (removed since we now use sidebar format)
 	const input = document.querySelector('.input-message-input'); // 消息输入框 / Message input box
 	
-	// 设置图片粘贴功能
-	// Setup image paste functionality
-	const imagePasteHandler = setupImagePaste('.input-message-input');
-	
 	if (input) {
 		input.focus(); // 自动聚焦 / Auto focus
 		input.addEventListener('keydown', (e) => {
@@ -188,86 +178,44 @@ window.addEventListener('DOMContentLoaded', () => {
 	// Unified function to send messages
 	function sendMessage() {
 		const text = input.innerText.trim(); // 获取输入的文本 / Get input text
-		const images = imagePasteHandler ? imagePasteHandler.getCurrentImages() : []; // 获取所有图片
 
-		if (!text && images.length === 0) return; // 如果没有文本且没有图片，则不发送
+		if (!text) return; // 没有文本就不发送
 		const rd = roomsData[activeRoomIndex]; // 当前房间数据 / Current room data
-		
-		if (rd && rd.chat) {
-			if (images.length > 0) {
-				// 发送包含图片的消息 (支持多图和文字合并)
-				// Send message with images (supports multiple images and text combined)
-				const messageContent = {
-					text: text || '', // 包含文字内容，如果有的话
-					images: images    // 包含所有图片数据
-				};
 
-				if (rd.privateChatTargetId) {
-					// 私聊图片消息加密并发送
-					// Encrypt and send private image message
-					const targetClient = rd.chat.channel[rd.privateChatTargetId];
-					if (targetClient && targetClient.shared) {
-						const clientMessagePayload = {
-							a: 'm',
-							t: 'image_private',
-							d: messageContent
-						};
-						const encryptedClientMessage = rd.chat.encryptClientMessage(clientMessagePayload, targetClient.shared);
-						const serverRelayPayload = {
-							a: 'c',
-							p: encryptedClientMessage,
-							c: rd.privateChatTargetId
-						};
-						const encryptedMessageForServer = rd.chat.encryptServerMessage(serverRelayPayload, rd.chat.serverShared);						rd.chat.sendMessage(encryptedMessageForServer);
-						addMsg(messageContent, false, 'image_private');
-					} else {
-						addSystemMsg(`${t('system.private_message_failed', 'Cannot send private message to')} ${rd.privateChatTargetName}. ${t('system.user_not_connected', 'User might not be fully connected.')}`)
-					}
+		if (rd && rd.chat) {
+			if (rd.privateChatTargetId) {
+				// 私聊消息加密并发送
+				// Encrypt and send private message
+				const targetClient = rd.chat.channel[rd.privateChatTargetId];
+				if (targetClient && targetClient.shared) {
+					const clientMessagePayload = {
+						a: 'm',
+						t: 'text_private',
+						d: text
+					};
+					const encryptedClientMessage = rd.chat.encryptClientMessage(clientMessagePayload, targetClient.shared);
+					const serverRelayPayload = {
+						a: 'c',
+						p: encryptedClientMessage,
+						c: rd.privateChatTargetId
+					};
+					const encryptedMessageForServer = rd.chat.encryptServerMessage(serverRelayPayload, rd.chat.serverShared);
+					rd.chat.sendMessage(encryptedMessageForServer);
+					addMsg(text, false, 'text_private');
 				} else {
-					// 公共频道图片消息发送
-					// Send image message to public channel
-					rd.chat.sendChannelMessage('image', messageContent);
-					addMsg(messageContent, false, 'image');
+					addSystemMsg(`${t('system.private_message_failed', 'Cannot send private message to')} ${rd.privateChatTargetName}. ${t('system.user_not_connected', 'User might not be fully connected.')}`)
 				}
-				
-				imagePasteHandler.clearImages(); // 清除所有图片预览
-			} else if (text) {
-				// 发送纯文本消息
-				// Send text-only message
-				if (rd.privateChatTargetId) {
-					// 私聊消息加密并发送
-					// Encrypt and send private message
-					const targetClient = rd.chat.channel[rd.privateChatTargetId];
-					if (targetClient && targetClient.shared) {
-						const clientMessagePayload = {
-							a: 'm',
-							t: 'text_private',
-							d: text
-						};
-						const encryptedClientMessage = rd.chat.encryptClientMessage(clientMessagePayload, targetClient.shared);
-						const serverRelayPayload = {
-							a: 'c',
-							p: encryptedClientMessage,
-							c: rd.privateChatTargetId
-						};
-						const encryptedMessageForServer = rd.chat.encryptServerMessage(serverRelayPayload, rd.chat.serverShared);
-						rd.chat.sendMessage(encryptedMessageForServer);					addMsg(text, false, 'text_private');
-					} else {
-						addSystemMsg(`${t('system.private_message_failed', 'Cannot send private message to')} ${rd.privateChatTargetName}. ${t('system.user_not_connected', 'User might not be fully connected.')}`)
-					}
-				} else {
-					// 公共频道消息发送
-					// Send public message
-					rd.chat.sendChannelMessage('text', text);
-					addMsg(text);				}
+			} else {
+				// 公共频道消息发送
+				// Send public message
+				rd.chat.sendChannelMessage('text', text);
+				addMsg(text);
 			}
-			
-			// 清空输入框并触发 input 事件
-			// Clear input and trigger input event
+
+			// 清空输入框，并让占位符与输入框高度跟着复位
+			// Clear the input, then let the placeholder and height reset
 			input.innerHTML = ''; // 清空输入框内容 / Clear input field content
-			if (imagePasteHandler && typeof imagePasteHandler.refreshPlaceholder === 'function') {
-				imagePasteHandler.refreshPlaceholder(); // 更新 placeholder 状态
-			}
+			input.dispatchEvent(new Event('input'));
 			autoGrowInput(); // 调整输入框高度
 		}
 	}
@@ -282,52 +230,66 @@ window.addEventListener('DOMContentLoaded', () => {
 	// 设置发送文件功能
 	// Setup file sending functionality
 	setupFileSend({
-		inputSelector: '.input-message-input', // 消息输入框选择器 / Message input selector
 		attachBtnSelector: '.chat-attach-btn', // 附件按钮选择器 / Attach button selector
-		fileInputSelector: '.new-message-wrapper input[type="file"]', // 文件输入框选择器 / File input selector
+		// 返回值是 true，或者一个表示发不出去原因的字符串：util.file.js 靠它决定
+		// 怎么向用户说明中断。单条消息的体积随房间成员数放大，成员多时可能超过
+		// 服务器允许的大小；而连接断开时也会发不出去，两者要分开说。
 		onSend: (message) => {
 			const rd = roomsData[activeRoomIndex];
-			if (rd && rd.chat) {
-				const userName = rd.myUserName || '';
-				const msgWithUser = { ...message, userName };
-				if (rd.privateChatTargetId) {
-					// 私聊文件加密并发送
-					// Encrypt and send private file message
-					const targetClient = rd.chat.channel[rd.privateChatTargetId];
-					if (targetClient && targetClient.shared) {
-						const clientMessagePayload = {
-							a: 'm',
-							t: msgWithUser.type + '_private',
-							d: msgWithUser
-						};
-						const encryptedClientMessage = rd.chat.encryptClientMessage(clientMessagePayload, targetClient.shared);
-						const serverRelayPayload = {
-							a: 'c',
-							p: encryptedClientMessage,
-							c: rd.privateChatTargetId
-						};
-						const encryptedMessageForServer = rd.chat.encryptServerMessage(serverRelayPayload, rd.chat.serverShared);
-						rd.chat.sendMessage(encryptedMessageForServer);
-						
-						// 添加到自己的聊天记录
-						if (msgWithUser.type === 'file_start') {
-							addMsg(msgWithUser, false, 'file_private');
-						}					} else {
-						addSystemMsg(`${t('system.private_file_failed', 'Cannot send private file to')} ${rd.privateChatTargetName}. ${t('system.user_not_connected', 'User might not be fully connected.')}`)
-					}
-				} else {
-					// 公共频道文件发送
-					// Send file to public channel
-					rd.chat.sendChannelMessage(msgWithUser.type, msgWithUser);
-					
-					// 添加到自己的聊天记录
-					if (msgWithUser.type === 'file_start') {
-						addMsg(msgWithUser, false, 'file');
-					}
+			if (!rd || !rd.chat) return 'no-room';
+
+			const userName = rd.myUserName || '';
+			const msgWithUser = { ...message, userName };
+
+			if (rd.privateChatTargetId) {
+				// 私聊文件加密并发送
+				// Encrypt and send private file message
+				const targetClient = rd.chat.channel[rd.privateChatTargetId];
+				if (!targetClient || !targetClient.shared) {
+					addSystemMsg(`${t('system.private_file_failed', 'Cannot send private file to')} ${rd.privateChatTargetName}. ${t('system.user_not_connected', 'User might not be fully connected.')}`);
+					return 'peer-not-ready';
 				}
-			}		}
+
+				const clientMessagePayload = {
+					a: 'm',
+					t: msgWithUser.type + '_private',
+					d: msgWithUser
+				};
+				const encryptedClientMessage = rd.chat.encryptClientMessage(clientMessagePayload, targetClient.shared);
+				const serverRelayPayload = {
+					a: 'c',
+					p: encryptedClientMessage,
+					c: rd.privateChatTargetId
+				};
+				const encryptedMessageForServer = rd.chat.encryptServerMessage(serverRelayPayload, rd.chat.serverShared);
+				const sent = rd.chat.sendMessage(encryptedMessageForServer);
+
+				// 添加到自己的聊天记录
+				if (msgWithUser.type === 'file_start') {
+					addMsg(msgWithUser, false, 'file_private');
+				}
+				return sent === true ? true : sendFailureReason(rd.chat);
+			}
+
+			// 公共频道文件发送
+			// Send file to public channel
+			const sent = rd.chat.sendChannelMessage(msgWithUser.type, msgWithUser);
+
+			// 添加到自己的聊天记录
+			if (msgWithUser.type === 'file_start') {
+				addMsg(msgWithUser, false, 'file');
+			}
+			return sent === true ? true : sendFailureReason(rd.chat);
+		}
 	});
 
+
+	// 发不出去时给个粗分类
+	// 连接已经断开是最常见的一种，也最容易被误判成“文件太大”，所以先看连接状态。
+	function sendFailureReason(chat) {
+		if (!chat.isOpen()) return 'offline';
+		return 'refused';
+	}
 
 	// 判断是否为移动端
 	// Check if the device is mobile
