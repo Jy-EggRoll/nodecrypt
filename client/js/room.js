@@ -55,6 +55,14 @@ export function switchRoom(index) {
 	activeRoomIndex = index;
 	const rd = roomsData[index];
 	if (typeof rd.unreadCount === 'number') rd.unreadCount = 0;
+	// 地址栏跟随当前房间：这样复制地址就能分享正在看的房间，刷新也回到它。
+	// replaceState 不写浏览历史，也不会触发 hashchange，因此不会与自动填充互相激发。
+	if (rd.roomName && window.history && window.history.replaceState) {
+		const canonical = '/#' + rd.roomName;
+		if (window.location.pathname + window.location.hash !== canonical || window.location.search !== '') {
+			window.history.replaceState({}, '', canonical);
+		}
+	}
 	const sidebarUsername = document.getElementById('sidebar-username');
 	if (sidebarUsername) sidebarUsername.textContent = rd.myUserName;
 	setSidebarAvatar(rd.myUserName);
