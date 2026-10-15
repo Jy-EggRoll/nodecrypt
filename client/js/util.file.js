@@ -2,6 +2,8 @@
 // 导入必要的模块
 import { deflate, inflate } from 'fflate';
 import { showFileUploadModal } from './util.fileUpload.js';
+import { mountFilePreview } from './util.filePreview.js';
+import { t } from './util.i18n.js';
 
 // 分卷大小统一配置
 const DEFAULT_VOLUME_SIZE = 256 * 1024; // 512KB
@@ -194,9 +196,11 @@ function readFileAsArrayBuffer(file) {
 	});
 }
 
-// Decompress volumes back to file
-// 将分卷解压回文件
-async function decompressVolumesToFile(volumes, fileName, originalHash = null) {
+// Decompress volumes back to raw bytes (no download, no disk write)
+// 将分卷解压回原始字节（不下载、不落盘）
+// 预览与下载都要这份字节，所以只有这一处实现：分卷拼接顺序、哈希校验这些细节
+// 一旦出现第二份实现就会慢慢走偏，校验被漏掉的那一份迟早会放出坏文件。
+async function decompressVolumesToBytes(volumes, originalHash = null) {
 	try {
 		// Combine all volumes using base64 decoding
 		const combinedData = volumes.map(volume => {
@@ -233,24 +237,30 @@ async function decompressVolumesToFile(volumes, fileName, originalHash = null) {
 					}
 				}
 				
-				// Create blob and download
-				const blob = new Blob([decompressed]);
-				const url = URL.createObjectURL(blob);
-				const a = document.createElement('a');
-				a.href = url;
-				a.download = fileName;
-				document.body.appendChild(a);
-				a.click();
-				document.body.removeChild(a);
-				URL.revokeObjectURL(url);
-				
-				resolve();
+				resolve(decompressed);
 			});
 		});
 	} catch (error) {
 		console.error('Decompression error:', error);
 		throw error;
 	}
+}
+
+// Decompress volumes back to file
+// 将分卷解压回文件
+async function decompressVolumesToFile(volumes, fileName, originalHash = null) {
+	const decompressed = await decompressVolumesToBytes(volumes, originalHash);
+
+	// Create blob and download
+	const blob = new Blob([decompressed]);
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = fileName;
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
 }
 
 // Decompress archive volumes to multiple files
@@ -401,7 +411,11 @@ async function handleFilesUpload(files, onSend) {
 				totalVolumes: volumes.length,
 				sentVolumes: 0,
 				status: 'sending',
-				originalHash
+				originalHash,
+				// 留一份原始 File 的引用，发送方才能预览自己刚发出去的文件。
+				// 这只是引用，浏览器背后是磁盘上的文件，不会额外占一份内存；
+				// 分卷（volumes）不能这么留，那是实打实的内存。
+				sourceFile: file
 			};
 			
 			window.fileTransfers.set(fileId, fileTransfer);
@@ -565,6 +579,8 @@ function updateFileProgress(fileId) {
 				downloadBtn.style.display = 'none';
 			}
 		} else if (transfer.status === 'completed') {
+			// 字节刚齐，立刻挂预览：预览位与下载按钮的显隐互不干扰，不必等按钮动画。
+			mountFilePreviews(element);
 			// 传输完成时的动画序列
 			if (progressContainer) {
 				// 先添加淡出动画类
@@ -699,6 +715,69 @@ function handleFileComplete(message) {
 		transfer.status = 'completed';
 		updateFileProgress(fileId);
 	}
+}
+
+// Get preview bytes for a file message
+// 取一条文件消息用于预览的字节
+//
+// 为什么不能像别处那样“发个请求去取”：NodeCrypt 的文件是设备之间点对点传的，字节只
+// 存在于接收方攒下的分卷或发送方手里的原始 File 上，没有任何服务端地址能按需取回。
+// 两个来源都没有时（传输结束后的历史消息、发送方刷新后的旧卡片）只能返回 null，
+// 由调用方保持原状，不做半截预览。
+// 归档（多文件 zip）不在这里展开：它要的是逐文件解包，不适合塞进一个预览位。
+export async function getPreviewBlob(fileId) {
+	const transfer = window.fileTransfers.get(fileId);
+	if (!transfer) return null;
+	if (transfer.isArchive) return null;
+	// File 本身就是 Blob，直接交给预览，省掉一次解压。
+	if (transfer.sourceFile) return transfer.sourceFile;
+	if (Array.isArray(transfer.volumeData) && transfer.volumeData.length > 0) {
+		const bytes = await decompressVolumesToBytes(transfer.volumeData, transfer.originalHash);
+		return new Blob([bytes]);
+	}
+	return null;
+}
+
+// Mount previews for every file card under the given root
+// 为给定根节点下的所有文件卡挂载预览
+// 可以在消息插入后重复调用：已经挂过的卡片会被跳过，所以收到新分卷时再调一次也不会重来。
+export function mountFilePreviews(root) {
+	const scope = root || document;
+	const slots = scope.querySelectorAll('.file-preview-slot');
+	slots.forEach((slot) => {
+		if (slot.dataset.previewState && slot.dataset.previewState !== 'idle') return;
+		const card = slot.closest('[data-file-id]');
+		if (!card) return;
+		const fileId = card.dataset.fileId;
+		const transfer = window.fileTransfers.get(fileId);
+		// 只有字节齐了才预览：传输中挂上去只会显示“加载中”，随后还得再拆掉。
+		if (!transfer || transfer.status !== 'completed') return;
+		if (transfer.isArchive) return;
+
+		slot.dataset.previewState = 'pending';
+		window.dispatchEvent(new CustomEvent('filePreviewMount', { detail: { fileId } }));
+
+		getPreviewBlob(fileId)
+			.then((blob) => {
+				if (!blob) {
+					// 拿不到字节就彻底不动这个位置，让卡片维持原样（只有下载入口）。
+					slot.dataset.previewState = 'idle';
+					return;
+				}
+				return mountFilePreview(slot, {
+					blob,
+					fileName: transfer.fileName,
+					fileId,
+					// 发送方没有分卷可下载，导航上不给一个点了没反应的按钮。
+					canDownload: Array.isArray(transfer.volumeData) && transfer.volumeData.length > 0
+				});
+			})
+			.catch((error) => {
+				console.error('File preview error:', error);
+				slot.dataset.previewState = 'failed';
+				slot.textContent = `${t('preview.unavailable', 'Preview unavailable')}: ${error.message}`;
+			});
+	});
 }
 
 // Download file from volumes

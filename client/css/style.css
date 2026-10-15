@@ -1834,3 +1834,79 @@ flex-direction: column;
 h2{
 	margin: 0%;
 }
+
+/* ---------- 文件消息预览 / File message inline preview ---------- */
+/* 空预览位（字节还没到、或归档不预览）不占位置，卡片保持原样 */
+.file-preview-slot:empty {
+	display: none;
+}
+.file-preview-slot {
+	margin-top: 8px;
+	max-width: 100%;
+}
+.file-preview-image,
+.file-preview-video {
+	display: block;
+	max-width: 100%;
+	max-height: 60vh;
+	border-radius: 10px;
+}
+.file-preview-audio {
+	width: 100%;
+}
+/* Markdown 渲染区：只负责可读性，观感尽量贴近聊天气泡里的普通文字 */
+.file-preview-markdown {
+	background: #fff;
+	border-radius: 10px;
+	padding: 8px 12px;
+	font-size: 14px;
+	line-height: 1.6;
+	color: #2c3e50;
+	overflow-wrap: anywhere;
+}
+.file-preview-markdown > :first-child {
+	margin-top: 0;
+}
+.file-preview-markdown > :last-child {
+	margin-bottom: 0;
+}
+.file-preview-markdown pre {
+	overflow-x: auto;
+	background: #f6f8fa;
+	padding: 8px 10px;
+	border-radius: 8px;
+}
+.file-preview-markdown code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 13px;
+}
+.file-preview-markdown a {
+	color: #2b7fd4;
+}
+.file-preview-fallback {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+	font-size: 12px;
+	color: #7f8c8d;
+}
+.file-preview-reason {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+/* 只约定尺寸与排布；外观交给共用的 .msg-action-btn */
+.file-preview-download {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	padding: 6px;
+	flex-shrink: 0;
+	cursor: pointer;
+}
+.file-preview-download svg {
+	width: 18px;
+	height: 18px;
+}
