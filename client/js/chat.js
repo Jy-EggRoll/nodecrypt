@@ -27,6 +27,58 @@ import {
 import {
 	t
 } from './util.i18n.js';
+import {
+	copyText
+} from './util.clipboard.js';
+
+// Icons for the copy button, inlined as SVG
+// 复制按钮的图标，一律内联 SVG：emoji 的字形与颜色随平台变化，也进不了语言表
+const ICON_COPY = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>';
+const ICON_COPIED = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path fill="currentColor" d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
+const ICON_COPY_FAILED = '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>';
+
+// Create the copy button for one message bubble, or null when there is nothing to copy
+// 为一条消息创建复制按钮；没有可复制正文时返回 null。
+// 为什么按钮在气泡之外：放进气泡就要么挤占文字所在的行、要么多出一整行把气泡撑高，
+// 两种都会改变聊天界面的观感；放在外侧则气泡的高度、换行与拖选行为一点不变。
+// 为什么默认可见而不是悬停才出现：手机没有 hover，悬停方案在触屏上等于点不到，
+// 所以常态就在，只用透明度压低存在感，悬停或键盘聚焦时恢复全亮。
+function createCopyButton(bubble, text) {
+	// 图片与文件气泡没有可复制的正文（图片只是 data URL，文件卡只有元信息），直接跳过
+	if (!bubble || bubble.querySelector('.bubble-img, .file-message')) return null;
+	let busy = false;
+	let resetTimer = null;
+	const btn = createElement('button', {
+		class: 'msg-action-btn msg-copy-btn',
+		type: 'button',
+		title: t('action.copy', 'Copy message'),
+		'aria-label': t('action.copy', 'Copy message'),
+		onclick: async (event) => {
+			// 阻止冒泡，避免顺带触发气泡自身的点击行为（例如图片放大）
+			event.stopPropagation();
+			if (busy) return;
+			busy = true;
+			const ok = await copyText(text);
+			// aria/title 跟着结果变，成功文案复用既有的 action.copied，不另立一份
+			const label = t(ok ? 'action.copied' : 'action.copy_failed_hint', ok ? 'Copied' : 'Copy failed');
+			btn.innerHTML = ok ? ICON_COPIED : ICON_COPY_FAILED;
+			btn.classList.add(ok ? 'msg-action-copied' : 'msg-action-failed');
+			btn.title = label;
+			btn.setAttribute('aria-label', label);
+			// 1.6 秒后回到常态：够看清结果，又不会长期停在提示态掩盖原来的含义
+			clearTimeout(resetTimer);
+			resetTimer = setTimeout(() => {
+				btn.innerHTML = ICON_COPY;
+				btn.classList.remove('msg-action-copied', 'msg-action-failed');
+				const idle = t('action.copy', 'Copy message');
+				btn.title = idle;
+				btn.setAttribute('aria-label', idle);
+				busy = false
+			}, 1600)
+		}
+	}, ICON_COPY);
+	return btn
+}
 
 // Render the chat area
 // 渲染聊天区域
@@ -114,7 +166,14 @@ export function addMsg(text, isHistory = false, msgType = 'text', timestamp = nu
 	const div = createElement('div', {
 		class: className
 	}, `<span class="bubble-content">${contentHtml}</span><span class="bubble-meta">${time}</span>`);
-	chatArea.appendChild(div);
+// 复制按钮在气泡外侧左侧：DOM 顺序是 [按钮][气泡]，整行靠右；气泡高度不受影响
+	const row = createElement('div', {
+		class: 'bubble-row is-me'
+	});
+	const copyBtn = createCopyButton(div, String(text));
+	if (copyBtn) row.appendChild(copyBtn);
+	row.appendChild(div);
+	chatArea.appendChild(row);
 	// 预览要等字节到位（分卷收齐或发送方手里的 File），这里只负责在消息插入后试着挂一次
 	mountFilePreviews(div);
 	chatArea.scrollTop = chatArea.scrollHeight
@@ -196,13 +255,16 @@ export function addOtherMsg(msg, userName = '', avatar = '', isHistory = false, 
 	if (msgType === 'file' || msgType === 'file_private') {
 		bubbleClasses += ' file-bubble';
 	}
-	bubbleWrap.innerHTML = `<span class="avatar"></span><div class="bubble-other-main"><div class="${bubbleClasses}"><div class="bubble-other-name">${safeUserName}</div><span class="bubble-content">${contentHtml}</span><span class="bubble-meta">${time}</span></div></div>`;
+	bubbleWrap.innerHTML = `<span class="avatar"></span><div class="bubble-other-main"><div class="bubble-row"><div class="${bubbleClasses}"><div class="bubble-other-name">${safeUserName}</div><span class="bubble-content">${contentHtml}</span><span class="bubble-meta">${time}</span></div></div></div>`;
 	const svg = createAvatarSVG(userName);
 	const avatarEl = $('.avatar', bubbleWrap);
 	if (avatarEl) {
 		const cleanSvg = svg.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
 		avatarEl.innerHTML = cleanSvg
 	}
+	// 复制按钮在气泡外侧右侧：DOM 顺序是 [气泡][按钮]；图片与文件消息由内部判断跳过
+	const copyBtn = createCopyButton($('.bubble', bubbleWrap), String(msg));
+	if (copyBtn) $('.bubble-row', bubbleWrap).appendChild(copyBtn);
 	chatArea.appendChild(bubbleWrap);
 	mountFilePreviews(bubbleWrap);
 	chatArea.scrollTop = chatArea.scrollHeight
@@ -408,7 +470,7 @@ function renderFileMessage(fileData, isSender) {
 						<div class="file-meta">${displayMeta}</div>
 					</div>
 				</div>
-				<button class="file-download-btn msg-action-btn show" style="${downloadBtnStyle}" onclick="window.downloadFile('${fileId}')">
+<button class="file-download-btn msg-action-btn show" style="${downloadBtnStyle}" onclick="window.downloadFile('${fileId}')">
 					<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><g stroke-width="0"></g><g stroke-linecap="round" stroke-linejoin="round"></g><g> <path fill-rule="evenodd" clip-rule="evenodd" d="M8 10C8 7.79086 9.79086 6 12 6C14.2091 6 16 7.79086 16 10V11H17C18.933 11 20.5 12.567 20.5 14.5C20.5 16.433 18.933 18 17 18H16.9C16.3477 18 15.9 18.4477 15.9 19C15.9 19.5523 16.3477 20 16.9 20H17C20.0376 20 22.5 17.5376 22.5 14.5C22.5 11.7793 20.5245 9.51997 17.9296 9.07824C17.4862 6.20213 15.0003 4 12 4C8.99974 4 6.51381 6.20213 6.07036 9.07824C3.47551 9.51997 1.5 11.7793 1.5 14.5C1.5 17.5376 3.96243 20 7 20H7.1C7.65228 20 8.1 19.5523 8.1 19C8.1 18.4477 7.65228 18 7.1 18H7C5.067 18 3.5 16.433 3.5 14.5C3.5 12.567 5.067 11 7 11H8V10ZM13 11C13 10.4477 12.5523 10 12 10C11.4477 10 11 10.4477 11 11V16.5858L9.70711 15.2929C9.31658 14.9024 8.68342 14.9024 8.29289 15.2929C7.90237 15.6834 7.90237 16.3166 8.29289 16.7071L11.2929 19.7071C11.6834 20.0976 12.3166 20.0976 12.7071 19.7071L15.7071 16.7071C16.0976 16.3166 16.0976 15.6834 15.7071 15.2929C15.3166 14.9024 14.6834 14.9024 14.2929 15.2929L13 16.5858V11Z" fill="currentColor"></path> </g></svg>
 				</button>
 			</div>
