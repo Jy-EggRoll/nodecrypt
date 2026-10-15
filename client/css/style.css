@@ -1157,7 +1157,11 @@ flex-direction: column;
 	font-weight: 500;
 }
 
-.file-download-btn {
+/* Shared look for message-level action buttons */
+/* 消息级操作按钮（文件卡下载、文本消息复制）的共用外观。
+   为什么抽成一个类而不是各写一份：这两个按钮必须长得一模一样，
+   分开维护尺寸与悬停反馈迟早会漂移，所以这里只定义一次，两边都挂这个类。*/
+.msg-action-btn {
 	padding: 10px;
 	background: linear-gradient(135deg, #52abff, #4fc3f7);
 	color: white;
@@ -1167,16 +1171,114 @@ flex-direction: column;
 	font-weight: 600;
 	cursor: pointer;
 	transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-	display: none;
+	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 40px;
-	height: 40px;
+	width: 36px;
+	height: 36px;
 	flex-shrink: 0;
-	opacity: 0;
-	transform: scale(0.8) translateY(5px);
 	position: relative;
 	overflow: hidden;
+}
+
+.msg-action-btn svg {
+	width: 18px;
+	height: 18px;
+	fill: currentColor;
+}
+
+.msg-action-btn:hover {
+	background: linear-gradient(135deg, #2196f3, #42a5f5);
+}
+
+.msg-action-btn:disabled {
+	background: linear-gradient(135deg, #bdc3c7, #95a5a6);
+	cursor: not-allowed;
+	box-shadow: none;
+}
+
+/* Hover sweep shared by both buttons */
+/* 悬停时扫过的一道白光，同样是两边共用的视觉反馈 */
+.msg-action-btn::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	left: -100%;
+	width: 100%;
+	height: 100%;
+	background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+	transition: left 0.6s ease;
+}
+
+.msg-action-btn:hover::before {
+	left: 100%;
+}
+
+/* Copy result feedback, declared after :disabled so it wins at equal specificity */
+/* 复制成功与失败的短暂反馈；放在 :disabled 之后，同优先级时以这里为准 */
+.msg-action-btn.msg-action-copied {
+	background: linear-gradient(135deg, #2fbf5f, #55d47f);
+}
+
+.msg-action-btn.msg-action-failed {
+	background: linear-gradient(135deg, #e05a4f, #f07b70);
+}
+
+/* Only the show/hide choreography stays here: the file card starts hidden
+   until the transfer finishes, while the copy button has no such state */
+/* 这里只留下显示时机：文件卡在传输完成前是隐藏的，复制按钮没有这个状态 */
+.file-download-btn {
+	display: none;
+	opacity: 0;
+	transform: scale(0.8) translateY(5px);
+}
+
+/* Message row: the action button sits beside the bubble, never inside it */
+/* 消息行：操作按钮与气泡并排，按钮在气泡外侧。
+   为什么放在气泡外而不是气泡里：放进去就会多占一行、把每条消息撑高，
+   也会把按钮的图标挤进用户拖选的范围；外侧则完全不动气泡内部的高度与排版。
+   为什么气泡可以满宽、按钮却不会被挤出去：气泡负责收缩、按钮固定不缩（flex: 0 0 auto），
+   窄屏上先压缩气泡、由 word-break 换行，因此不会横向溢出。*/
+.bubble-row {
+	display: flex;
+	align-items: flex-end; /* 与气泡底部对齐：和气泡内右下角的时间戳落在同一条视觉基线上 */
+	gap: 7px;
+	min-width: 0;
+	max-width: 100%;
+}
+
+/* 自己发的消息整行靠右，DOM 顺序是 [按钮][气泡] */
+.bubble-row.is-me {
+	justify-content: flex-end;
+}
+
+.bubble-row > .bubble {
+	flex: 0 1 auto;
+	min-width: 0;
+}
+
+/* 自己发的气泡原本靠 margin-left: auto 把自己推到右侧；
+   在消息行里这件事改由 justify-content 负责，否则这条 auto 外边距会先吃掉全部空隙，
+   把按钮顶到整行的最左边，按钮就不再紧贴气泡了。*/
+.bubble-row.is-me > .bubble.me {
+	margin-left: 0;
+}
+
+/* Copy button on a text message */
+/* 文本消息的复制按钮。
+   为什么默认可见：手机没有 hover，任何“悬停才出现”的方案在触屏上都点不到，
+   所以常态就在，只用透明度压低存在感，悬停或键盘聚焦时恢复全亮。
+   为什么有 margin-bottom：与气泡的 margin-bottom 取同一个值，
+   否则 flex-end 对齐的是含外边距的盒子底边，按钮会视觉上掉到气泡下面。*/
+.msg-copy-btn {
+	flex: 0 0 auto;
+	margin-bottom: .375rem;
+	opacity: 0.55;
+}
+
+.msg-copy-btn:hover,
+.msg-copy-btn:focus-visible {
+	opacity: 1;
 }
 
 .file-download-btn.show {
@@ -1202,23 +1304,6 @@ flex-direction: column;
 		opacity: 1;
 		transform: scale(1) translateY(0) rotate(0deg);
 	}
-}
-
-.file-download-btn svg {
-	width: 20px;
-	height: 20px;
-	fill: currentColor;
-}
-
-.file-download-btn:hover {
-	background: linear-gradient(135deg, #2196f3, #42a5f5);
-}
-
-.file-download-btn:disabled {
-	background: linear-gradient(135deg, #bdc3c7, #95a5a6);
-	cursor: not-allowed;
-	transform: none;
-	box-shadow: none;
 }
 
 .file-progress-container {
@@ -1634,15 +1719,15 @@ flex-direction: column;
 	.file-meta {
 		font-size: 11px;
 	}
-		.file-download-btn {
-		padding: 8px;
-		width: 36px;
-		height: 36px;
+		.msg-action-btn {
+		padding: 7px;
+		width: 32px;
+		height: 32px;
 	}
 	
-	.file-download-btn svg {
-		width: 18px;
-		height: 18px;
+	.msg-action-btn svg {
+		width: 16px;
+		height: 16px;
 	}
 	
 	.file-progress-container {
@@ -1671,25 +1756,7 @@ flex-direction: column;
 	}
 }
 
-.file-download-btn {
-	position: relative;
-	overflow: hidden;
-}
 
-.file-download-btn::before {
-	content: '';
-	position: absolute;
-	top: 0;
-	left: -100%;
-	width: 100%;
-	height: 100%;
-	background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-	transition: left 0.6s ease;
-}
-
-.file-download-btn:hover::before {
-	left: 100%;
-}
 
 /* Image preview in input */
 /* 输入框图片预览样式 */

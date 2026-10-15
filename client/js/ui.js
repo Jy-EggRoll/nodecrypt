@@ -17,6 +17,9 @@ import {
 	$id
 } from './util.dom.js';
 import {
+	copyText
+} from './util.clipboard.js';
+import {
 	closeSettingsPanel
 } from './util.settings.js';
 import {
@@ -78,33 +81,13 @@ function validateRoomData(roomData) {
 
 // Copy text to clipboard with fallback
 // 复制文本到剪贴板（含降级处理）
-function copyToClipboard(text, successMessage = t('action.copied', 'Copied to clipboard!'), errorPrefix = t('action.copy_failed', 'Copy failed, url:')) {
-	if (!text) {
-		window.addSystemMsg && window.addSystemMsg(t('action.nothing_to_copy', 'Nothing to copy'));
-		return;
-	}
-
-	if (navigator.clipboard && navigator.clipboard.writeText) {
-		navigator.clipboard.writeText(text).then(() => {
-			window.addSystemMsg && window.addSystemMsg(successMessage);
-		}).catch((error) => {
-			console.error('Clipboard write failed:', error);
-			showFallbackCopy(text, errorPrefix);
-		});
-	} else {
-		showFallbackCopy(text, errorPrefix);
-	}
-}
-
-// Show fallback copy method
-// 显示降级复制方法
-function showFallbackCopy(text, prefix) {
-	if (typeof prompt === 'function') {
-		prompt(prefix, text);
-	} else {
-		// For environments where prompt is not available
-		window.addSystemMsg && window.addSystemMsg(t('action.copy_not_supported', 'Copy not supported in this environment'));
-	}
+// 复制实现已收敛到 util.clipboard.js，这里只负责把结果反馈成系统消息
+// （旧实现自带一份 prompt 弹窗降级，两套复制逻辑并存，现在只留一份）
+function copyToClipboard(text, successMessage, errorPrefix) {
+	if (!text) return;
+	copyText(text).then((ok) => {
+		window.addSystemMsg && window.addSystemMsg(ok ? successMessage : errorPrefix);
+	});
 }
 
 // Execute menu action with error handling
@@ -150,7 +133,8 @@ function handleShareAction() {
 	// 放进路径或查询串则服务器（以及它的日志）都能看到它。
 	const url = `${location.origin}/#${code}`;
 	
-	copyToClipboard(url, t('action.share_copied', 'Share link copied!'), t('action.copy_url_failed', 'Copy failed, url:'));
+	// 降级路径不再弹 prompt，失败时把链接拼进提示里，用户仍能手动选中
+	copyToClipboard(url, t('action.share_copied', 'Share link copied!'), t('action.copy_url_failed', 'Copy failed, url:') + ' ' + url);
 }
 
 // Handle exit action

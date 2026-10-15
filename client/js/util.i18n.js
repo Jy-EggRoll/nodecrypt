@@ -43,6 +43,11 @@ const LANGUAGES = {
 			'ui.anonymous': 'Anonymous',
 			'ui.start_private_chat': 'Select for private chat',
 			
+			// Copy button on a text message (action.copied already exists above and is reused)
+			// 文本消息上的复制按钮（成功文案复用上面已有的 action.copied，不另立一份）
+			'action.copy': 'Copy message',
+			'action.copy_failed_hint': 'Copy failed, select the text manually',
+			
 			// Settings panel
 			'settings.title': 'Settings',
 			'settings.notification': 'Notification Settings',
@@ -87,10 +92,7 @@ const LANGUAGES = {
 			'action.cancel': 'Cancel',
 			'action.copied': 'Copied to clipboard!',
 			'action.share_copied': 'Share link copied!',
-			'action.copy_failed': 'Copy failed, text:',
 			'action.copy_url_failed': 'Copy failed, url:',
-			'action.nothing_to_copy': 'Nothing to copy',
-			'action.copy_not_supported': 'Copy not supported in this environment',
 			'action.action_failed': 'Action failed. Please try again.',
 			'action.cannot_share': 'Cannot share:',
 					// System messages
@@ -179,6 +181,11 @@ const LANGUAGES = {
 			'ui.anonymous': '匿名用户',
 			'ui.start_private_chat': '选择用户开始私信',
 			
+			// Copy button on a text message (action.copied already exists above and is reused)
+			// 文本消息上的复制按钮（成功文案复用上面已有的 action.copied，不另立一份）
+			'action.copy': '复制这条消息',
+			'action.copy_failed_hint': '复制失败，请手动选中文字复制',
+			
 			// Settings panel
 			'settings.title': '设置',
 			'settings.notification': '通知设置',
@@ -223,10 +230,7 @@ const LANGUAGES = {
 			'action.cancel': '取消',
 			'action.copied': '已复制到剪贴板！',
 			'action.share_copied': '分享链接已复制！',
-			'action.copy_failed': '复制失败，文本：',
 			'action.copy_url_failed': '复制失败，链接：',
-			'action.nothing_to_copy': '没有内容可复制',
-			'action.copy_not_supported': '此环境不支持复制功能',
 			'action.action_failed': '操作失败，请重试。',
 			'action.cannot_share': '无法分享：',
 					// System messages
