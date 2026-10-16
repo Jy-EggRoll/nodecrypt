@@ -284,6 +284,11 @@ body {
 	min-width: 200px;
 	width: 400px;
 	text-align: center;
+	/* 与等待页卡片用同一个盒模型：不设 border-box 时 width 只是内容宽，加上两侧
+	   24px 内边距后实际会撑到 448px，两块本该同尺寸的卡片就差了 48px。
+	   max-width 让窄屏下留住左右各 16px，而不是把卡片压到贴着屏幕两边。 */
+	box-sizing: border-box;
+	max-width: calc(100vw - 32px);
 }
 
 .login-modal-card form {
@@ -595,8 +600,10 @@ body {
   color: #808080;
 }
 
+/* 下边距取 16px 而不是 4px：授权弹窗里说明文字用的是段落默认下边距，
+   两处按钮距上方文字都是「文字下边距 + 按钮 margin-top」，取 16px 才能与弹窗的 36px 对齐 */
 .waiting-room-device {
-  margin: 16px 0 4px;
+  margin: 16px 0 16px;
   font-size: 16px;
   color: #333;
 }
@@ -613,8 +620,11 @@ body {
   justify-content: center;
 }
 
+/* 次要按钮的最小宽度只在这里定义一次：等待页的取消按钮同样是单独占一行的次要操作，
+   少了它就会退化成贴合文字的窄按钮，与弹窗里的拒绝按钮宽度不一致 */
 .join-request-actions .login-btn,
-.join-request-actions .login-btn-secondary {
+.join-request-actions .login-btn-secondary,
+.waiting-room-card .login-btn-secondary {
   min-width: 96px;
 }
 
