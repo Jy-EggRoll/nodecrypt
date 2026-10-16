@@ -45,6 +45,27 @@ import {
 // 设备身份：长期保存在本机，已获批准的设备重连时不必重新申请批准
 const DEVICE_ID_STORAGE = 'nodecrypt_device_id';
 
+// 房间码缓存沿用历史键名，老用户的缓存不必失效。
+// 与设备标识一样必须包 try/catch：隐私模式下 localStorage 一旦抛错，
+// 没有兜住就会让整张登录表单连带挂掉，代价远大于少记一个码。
+const ROOM_CODE_STORAGE = 'nodecrypt_room_code';
+
+export function rememberRoomCode(code) {
+	try {
+		if (code) localStorage.setItem(ROOM_CODE_STORAGE, code);
+	} catch (error) {
+		console.warn('Failed to remember room code:', error);
+	}
+}
+
+export function getRememberedRoomCode() {
+	try {
+		return localStorage.getItem(ROOM_CODE_STORAGE) || '';
+	} catch (error) {
+		return '';
+	}
+}
+
 export function getDeviceId() {
 	let deviceId = '';
 	try {
@@ -444,6 +465,10 @@ export function loginFormHandler(modal) {
 		}
 		window.joinRoom(userName, roomName, modal, function(success) {
 			if (success) {
+				// 进入房间成功才写缓存：这一次才是真的「用过」这个码。写早了会把
+				// 连不上的码留在缓存里，下次打开就被预填进去；主表单与侧边栏弹窗
+				// 都算真的进了房间，所以两条路径都写。
+				rememberRoomCode(roomName);
 				// 用户可能在输入框里改成了另一个密钥，成功后必须把地址栏同步过去，
 				// 否则刷新时片段里的旧密钥优先，会把人莫名拉回旧房间。
 				// 侧边栏加入的第二个房间不改网址，它只是同一个标签页里的额外房间。
@@ -460,15 +485,50 @@ export function loginFormHandler(modal) {
 
 // 生成登录表单HTML
 // Generate login form HTML
+
+// 主表单与侧边栏弹窗共用这一份「换一个」实现：同一个生成规则、同一次写入缓存。
+// 两处各写一遍的话，生成规则或缓存时机迟早会改漏其中一处。
+// 目标输入框从按钮所在的输入框组里取，避免再给按钮挂一个 id 或 data 属性。
+function regenerateRoomCode(button) {
+	const input = button.closest('.input-group')?.querySelector('input');
+	if (!input) return;
+	const code = generateRoomSecret();
+	input.value = code;
+	// 用户主动换掉的码就是他选中的码，立刻落盘，刷新后仍是这一个
+	rememberRoomCode(code);
+	// 主表单的地址栏片段必须跟着换成新码：片段优先于缓存，只写缓存不改地址栏的话，
+	// 用户点完「换一个」再刷新，回来的还是地址栏里那个旧码，换码等于白换。
+	if (input.id === 'roomName') {
+		window.history.replaceState({}, '', '/#' + code);
+	}
+}
+
+// 两个表单都是运行时插入并销毁的，用事件委托只绑一次，
+// 比在每处插入后各绑一次更不容易漏掉将来新增的第三个入口。
+document.addEventListener('click', (event) => {
+	const button = event.target.closest('.room-code-refresh');
+	if (button) regenerateRoomCode(button);
+});
+
+// 按钮只有图形，可读文案来自语言表。主表单会被 regenerateLoginForm 重新渲染成
+// 新语言，侧边栏弹窗不会，所以在语言变更时统一刷一遍 title 与 aria-label。
+function refreshRoomCodeButtonLabels() {
+	const label = t('ui.room_code_regenerate', 'Generate another room code');
+	document.querySelectorAll('.room-code-refresh').forEach((button) => {
+		button.title = label;
+		button.setAttribute('aria-label', label);
+	});
+}
 export function generateLoginForm(isModal = false) {
 	const idSuffix = isModal ? '-modal' : '';
 	return `		<div class="input-group">
 			<input id="userName${idSuffix}" type="text" autocomplete="username" required minlength="1" maxlength="15" placeholder="">
 			<label for="userName${idSuffix}" class="floating-label">${t('ui.username', 'Username')}</label>
 		</div>
-		<div class="input-group">
+		<div class="input-group input-group-room">
 			<input id="roomName${idSuffix}" type="text" required minlength="1" maxlength="${SECRET_MAX_LENGTH}" pattern="[a-z0-9]+" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="">
 			<label for="roomName${idSuffix}" class="floating-label">${t('ui.node_name', 'Room Code')}</label>
+			<button type="button" class="room-code-refresh" title="${t('ui.room_code_regenerate', 'Generate another room code')}" aria-label="${t('ui.room_code_regenerate', 'Generate another room code')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.36-6.36L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.36 6.36L3 16"/><path d="M3 21v-5h5"/></svg></button>
 		</div>
 		<button type="submit" class="login-btn">${t('ui.enter', 'ENTER')}</button>
 	`;
@@ -557,32 +617,33 @@ export function setupTabs() {
 // 从 URL 自动填充房间
 // 两个表单的输入框 id 靠后缀区分：主表单是 roomName，弹窗是 roomName-modal
 export function autofillRoomPwd(idSuffix = '') {
-	// 只有主登录表单改写地址栏；两个表单都会预填一个可用的房间码。
+	// 只有主登录表单会预填「上次用过的码」并改写地址栏；侧边栏的「加入房间」弹窗
+	// 只给一个新生成的码：那里多半是要另外新建一个房间，预填缓存里的码会让人以为
+	// 自己走错了地方，而完全留空又得让用户先想一个码出来。
 	const isMainForm = idSuffix === '';
 	const roomInput = document.getElementById('roomName' + idSuffix);
 	// 密钥只从网址片段读取：片段不随任何请求发给服务器，路径与查询串会。
 	// 曾经放在路径或查询串里的旧链接不再兼容，读不到片段就等于没有密钥。
 	const hashSecret = normalizeRoomSecret(decodeURIComponent(window.location.hash.replace(/^#/, '')));
 
-	// 刻意不落任何存储：同一浏览器每次打开都得到新密钥，用户才不会误以为它是写死的。
+	// 预填优先级：网址片段 → 上一次真正用过的码 → 新生成一个。
+	// 片段必须压过缓存：别人发来的链接要能直接进到对方那个房间；若让缓存优先，
+	// 点开链接的人会被拉回自己上次的房间，还以为链接坏了。
+	// 新生成的那个码刻意不写进缓存：它还没被「使用」过，而刷新有地址栏片段兜底
+	// （片段里的码优先于缓存），只有真正进入房间成功、或用户主动点「换一个」才落盘；
+	// 否则缓存里会留下一个用户从未用过的码，反而把上次真正用过的那个顶掉。
 	let roomValue = '';
-
-	if (isMainForm && hashSecret) {
-		// 首次进入：链接里的密钥就是这台设备要用的房间
-		roomValue = hashSecret;
-	}
-	if (!roomValue) {
-		// 打开域名根地址，或在页面内打开进入房间的弹窗时，先准备一个新的密钥。
-		// 页面内的弹窗刻意不用当前房间的码：那里多半是要新建一个房间，
-		// 预填当前房间的码只会让人以为自己进错了地方；要加入已有的房间，
-		// 直接把输入框里的内容换掉即可。
+	if (isMainForm) {
+		roomValue = hashSecret || normalizeRoomSecret(getRememberedRoomCode()) || generateRoomSecret();
+	} else {
+		// 弹窗每次都现生成一个：复用缓存里的码只会让人分不清自己是在新建还是加入
 		roomValue = generateRoomSecret();
 	}
 
 	// Fill in the form fields
 	if (roomValue && roomInput) {
 		roomInput.value = roomValue;
-		// 输入框保持可编辑：用户要换别的密钥时直接改，不需要额外的按钮
+		// 输入框保持可编辑：用户要换别的密钥时，点旁边的「换一个」或直接改都行
 		roomInput.readOnly = false;
 	}
 
@@ -629,6 +690,9 @@ window.addEventListener('languageChange', () => {
 	
 	// Refresh chat input placeholder
 	updateChatInputStyle();
+
+	// 房间码行的图标按钮只有图形，提示文字来自语言表，跟着语言一起刷新
+	refreshRoomCodeButtonLabels();
 });
 
 // Listen for regenerate login form event

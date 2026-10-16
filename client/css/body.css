@@ -643,3 +643,51 @@ body {
 .login-btn-secondary:active {
 	transform: translateY(1px);
 }
+
+/* 房间码行：输入框与「换一个」按钮同排。
+   浮动标签靠 `input + .floating-label` 紧邻兄弟选择器做动画，所以按钮只能排在
+   label 之后；输入框与按钮用 flex 分宽度，窄屏下输入框自己收窄，文字不会被压住。
+   stretch 让按钮直接取输入框的高度，而不是写死一个像素值——那个值在字体或行高
+   变化后就会失配，变成两处一高一低。 */
+.input-group-room {
+	flex-direction: row;
+	align-items: stretch;
+	gap: 8px;
+}
+
+.input-group-room input {
+	flex: 1 1 auto;
+	width: auto;
+	min-width: 0;
+}
+
+.room-code-refresh {
+	flex: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 48px;
+	padding: 0;
+	border: 1px solid #e5e5e5;
+	border-radius: 10px;
+	background: #fafbfc;
+	color: #808080;
+	cursor: pointer;
+	transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+}
+
+.room-code-refresh:hover {
+	border-color: #30a8f7;
+	background: #fff;
+	color: #30a8f7;
+}
+
+.room-code-refresh:active {
+	transform: translateY(1px);
+}
+
+.room-code-refresh svg {
+	display: block;
+	width: 20px;
+	height: 20px;
+}

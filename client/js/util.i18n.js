@@ -21,6 +21,8 @@ const LANGUAGES = {
 			'ui.enter_node': 'Enter a Room',
 			'ui.username': 'Username',
 			'ui.node_name': 'Room Code',
+			// 房间码行上的图标按钮只有图形，可读文案全靠 title 与 aria-label
+			'ui.room_code_regenerate': 'Generate another room code',
 			// Join approval and waiting screens share this wording
 			// 加入批准与候客界面共用这些文案
 			'ui.waiting_approval': 'Waiting for approval',
@@ -182,6 +184,8 @@ const LANGUAGES = {
 			'ui.enter_node': '进入新的房间',
 			'ui.username': '用户名',
 			'ui.node_name': '房间码',
+			// 房间码行上的图标按钮只有图形，可读文案全靠 title 与 aria-label
+			'ui.room_code_regenerate': '换一个房间码',
 			// 加入批准与候客界面共用这些文案
 			// Join approval and waiting screens share this wording
 			'ui.waiting_approval': '等待房间内设备批准',
